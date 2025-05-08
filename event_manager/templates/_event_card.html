@@ -1,0 +1,15 @@
+<div class="event-card">
+    {# Assuming basic card structure for consistency #}
+    <h3 class="card-header">{{ fest.FestName }}</h3>
+     <div class="card-body">
+        <p><strong>Starts:</strong> {{ fest.StartTime | replace('T', ' ') if fest.StartTime else 'N/A' }}</p>
+        <p><strong>Ends:</strong> {{ fest.EndTime | replace('T', ' ') if fest.EndTime else 'N/A' }}</p>
+        {# Highlight the registration deadline #}
+        <p><strong>Register By:</strong> <strong class="text-emphasis">{{ fest.RegistrationEndTime | replace('T', ' ') if fest.RegistrationEndTime else 'N/A' }}</strong></p>
+        {% if fest.Venue %}<p><strong>Venue:</strong> {{ fest.Venue }}</p>{% endif %}
+        <p class="event-details-preview">{{ fest.Details | truncate(100, True) }}</p>
+    </div>
+     <div class="card-footer">
+        <a href="{{ url_for('event_detail', fest_id_param=fest.FestID) }}" class="btn btn-info btn-block">View Details & Join</a>
+     </div>
+</div>

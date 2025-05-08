@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    Live & Upcoming Events
+{% endblock %}
+
+{% block content %}
+<div class="events-container">
+    <h2>Events Open For Registration</h2>
+    <p>Find exciting events happening soon! Registration closes at the time listed.</p>
+    
+    {% if fests %}
+        <div class="event-grid"> {# Using grid defined in earlier CSS examples #}
+            {% for fest in fests %} {# Only fests where RegistrationEndTime > now() are passed #}
+                {# Include the updated partial template #}
+                {% include '_event_card.html' %} 
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">No events are currently open for registration. Please check back later!</div>
+    {% endif %}
+</div>
+{% endblock %}
