@@ -30,11 +30,26 @@ DATETIME_SHEET_FORMAT = '%Y-%m-%dT%H:%M'
 def get_gspread_client():
     print("Attempting to authorize gspread client...")
     try:
-        if not os.path.exists(CREDS_FILE): print(f"CRITICAL ERROR: Credentials file not found at '{CREDS_FILE}'"); raise FileNotFoundError(f"...")
-        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
+        creds_dict = {
+            "type": os.environ.get("GOOGLE_TYPE"),
+            "project_id": os.environ.get("GOOGLE_PROJECT_ID"),
+            "private_key_id": os.environ.get("GOOGLE_PRIVATE_KEY_ID"),
+            "private_key": os.environ.get("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+            "client_email": os.environ.get("GOOGLE_CLIENT_EMAIL"),
+            "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
+            "auth_uri": os.environ.get("GOOGLE_AUTH_URI"),
+            "token_uri": os.environ.get("GOOGLE_TOKEN_URI"),
+            "auth_provider_x509_cert_url": os.environ.get("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),
+            "client_x509_cert_url": os.environ.get("GOOGLE_CLIENT_X509_CERT_URL"),
+            "universe_domain": os.environ.get("GOOGLE_UNIVERSE_DOMAIN", "googleapis.com")
+        }
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
         client = gspread.authorize(creds)
-        print("gspread client authorized successfully."); return client
-    except Exception as e: print(f"CRITICAL ERROR initializing gspread client: {e}"); raise
+        print("gspread client authorized successfully.")
+        return client
+    except Exception as e: 
+        print(f"CRITICAL ERROR initializing gspread client: {e}")
+        raise
 
 def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
     if not email_address or "@" not in email_address: print(f"Skipping sharing '{sheet_title}': Invalid email."); return False
