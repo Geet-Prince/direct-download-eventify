@@ -1,0 +1,7 @@
+google_creds.json
+
+.env
+__pycache__/
+*.pyc
+tempCodeRunnerFile.py
+#Add .gitignore to exclude sensitive and temp files
