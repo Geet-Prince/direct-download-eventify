@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    Manage Event - {{ fest.FestName if fest else "N/A" }}
+{% endblock %}
+
+{% block content %}
+<div class="manage-container card"> {# Use card styling #}
+    {% if fest %}
+         <h2 class="card-header">Manage Event: {{ fest.FestName }}</h2>
+         <div class="card-body">
+             <p><strong>Fest ID:</strong> {{ fest.FestID }}</p>
+             {# Add more identifying info if desired, e.g., start/end times #}
+            <p><strong>Starts:</strong> {{ fest.StartTime|replace('T', ' ') if fest.StartTime else 'N/A' }}</p>
+            <p><strong>Ends:</strong> {{ fest.EndTime|replace('T', ' ') if fest.EndTime else 'N/A' }}</p>
+
+             <hr>
+             <h4>Actions:</h4>
+
+             <div class="action-options">
+                 {# Option 1: End Event Now (if not already ended) #}
+                 {# Add logic to maybe hide this if EndTime is already in the past? 
+                    Need to pass 'now' or check in template, simpler to show always and let backend handle state. 
+                 #}
+                 <div class="action-option">
+                     <h5>End Event Now</h5>
+                     <p><small>This marks the event's end time as the current time and moves it to history. Use this if the event finished early or was cancelled after starting.</small></p>
+                    <form action="{{ url_for('end_fest', fest_id=fest.FestID) }}" method="POST" style="display: inline-block;">
+                        {# Add CSRF token if using Flask-WTF #}
+                        <button type="submit" class="btn btn-warning" 
+                                onclick="return confirm('Are you sure you want to mark this event as ENDED right now?');">
+                            End Event Now
+                        </button>
+                    </form>
+                 </div>
+
+                 <hr style="margin: 20px 0;">
+
+                 {# Option 2: Delete Event #}
+                 <div class="action-option">
+                      <h5>Delete Event</h5>
+                      <p><small>This permanently removes the event listing from the dashboard and history. It does NOT delete the separate registration data sheet (if one was created). This cannot be undone.</small></p>
+                     <form action="{{ url_for('delete_fest', fest_id=fest.FestID) }}" method="POST" style="display: inline-block;">
+                          {# Add CSRF token if using Flask-WTF #}
+                         <button type="submit" class="btn btn-danger"
+                                 onclick="return confirm('DANGER! Are you sure you want to PERMANENTLY DELETE this event? This action cannot be undone.');">
+                              Delete Event Permanently
+                         </button>
+                     </form>
+                 </div>
+             </div>
+             
+             <hr>
+             {# Link back to dashboard or maybe history depending on context #}
+             <a href="{{ request.referrer or url_for('club_dashboard') }}" class="btn btn-secondary">Cancel / Back</a>
+         </div>
+    {% else %}
+         <h2>Error</h2>
+         <p class="text-danger">Could not load event details for management.</p>
+          <a href="{{ url_for('club_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    {% endif %}
+</div>
+{% endblock %}
