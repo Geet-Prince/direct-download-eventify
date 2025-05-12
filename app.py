@@ -239,22 +239,80 @@ def edit_fest(fest_id):
 # Route to PERFORM end action
 @app.route('/club/fest/<fest_id>/end', methods=['POST'])
 def end_fest(fest_id):
-    if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
+    if 'club_id' not in session:
+        flash("Login required.", "warning")
+        return redirect(url_for('club_login'))
+
     print(f"EndFest POST: FestID: {fest_id}")
     try:
-        _,_,_,fests_sheet = get_master_sheet_tabs()
-        try: fest_cell = fests_sheet.find(fest_id, in_column=1)
-        except gspread.exceptions.CellNotFound: flash("Fest to end not found.", "danger"); return redirect(url_for('club_dashboard'))
-        if not fest_cell: flash("Fest to end not found.", "danger"); return redirect(url_for('club_dashboard'))
-        fest_row_index = fest_cell.row; all_fests_data = fests_sheet.get_all_records(); fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id), None);
-        if not fest_info: flash("Fest data mismatch.", "danger"); return redirect(url_for('club_dashboard'))
-        if str(fest_info.get('ClubID',''))!=session['club_id']: flash("Permission denied.", "danger"); return redirect(url_for('club_dashboard'))
-        try: header_row = fests_sheet.row_values(1); end_time_col_index = header_row.index('EndTime') + 1;
-        except Exception as header_e: print(f"ERROR finding EndTime header: {header_e}"); flash("Sheet config error.", "danger"); return redirect(url_for('club_dashboard'));
-        now_str = datetime.now().strftime(DATETIME_SHEET_FORMAT); print(f"EndFest: Updating Row {fest_row_index} EndTime to {now_str}")
-        fests_sheet.update_cell(fest_row_index, end_time_col_index, now_str); flash(f"Fest '{fest_info.get('FestName', fest_id)}' marked ended.", "success")
-    except Exception as e: print(f"ERROR ending fest {fest_id}: {e}"); traceback.print_exc(); flash("Error ending event.", "danger")
-    return redirect(url_for('club_dashboard')) 
+        _, _, _, fests_sheet = get_master_sheet_tabs()
+        try:
+            fest_cell = fests_sheet.find(fest_id, in_column=1) # Find by FestID in the first column
+        except gspread.exceptions.CellNotFound:
+            flash("Fest to end not found.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        if not fest_cell: # Should be caught by CellNotFound, but good to double-check
+            flash("Fest to end not found (fallback).", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        fest_row_index = fest_cell.row
+        
+        # It's generally more efficient to get the specific row once if you need multiple values
+        # or to update multiple cells in that row.
+        # However, your existing logic to get all_fests_data and then find fest_info is also fine.
+        all_fests_data = fests_sheet.get_all_records() # get_all_records can be slow for large sheets
+        fest_info = next((f for f in all_fests_data if str(f.get('FestID', '')) == fest_id), None)
+
+        if not fest_info:
+            flash("Fest data mismatch after finding cell. Please check sheet consistency.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        if str(fest_info.get('ClubID', '')) != session['club_id']:
+            flash("Permission denied to end this event.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        try:
+            header_row = fests_sheet.row_values(1) # Assuming headers are in row 1
+            end_time_col_index = header_row.index('EndTime') + 1  # +1 for 1-based indexing in gspread
+            published_col_index = header_row.index('Published') + 1 # +1 for 1-based indexing
+        except ValueError as ve: # Specific error if a header is not found
+            print(f"ERROR: 'EndTime' or 'Published' header not found in 'Fests' sheet: {ve}")
+            flash("Sheet configuration error (missing critical headers).", "danger")
+            return redirect(url_for('club_dashboard'))
+        except Exception as header_e:
+            print(f"ERROR finding headers in 'Fests' sheet: {header_e}")
+            flash("Sheet configuration error.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        now_str = datetime.now().strftime(DATETIME_SHEET_FORMAT)
+        
+        # Prepare batch update
+        updates_to_make = [
+            {
+                'range': gspread.utils.rowcol_to_a1(fest_row_index, end_time_col_index),
+                'values': [[now_str]],
+            },
+            {
+                'range': gspread.utils.rowcol_to_a1(fest_row_index, published_col_index),
+                'values': [['no']], # Set Published to 'no'
+            }
+        ]
+        
+        print(f"EndFest: Updating Row {fest_row_index} - EndTime to {now_str}, Published to 'no'")
+        fests_sheet.batch_update(updates_to_make)
+        # fests_sheet.update_cell(fest_row_index, end_time_col_index, now_str)
+        # fests_sheet.update_cell(fest_row_index, published_col_index, 'no') # Unpublish
+
+        flash(f"Fest '{fest_info.get('FestName', fest_id)}' marked ended and unpublished.", "success")
+
+    except Exception as e:
+        print(f"ERROR ending fest {fest_id}: {e}")
+        traceback.print_exc()
+        flash("Error ending event.", "danger")
+
+    return redirect(url_for('club_dashboard'))
+# Route to PERFORM delete action
 
 # Route to PERFORM delete action
 @app.route('/club/fest/<fest_id>/delete', methods=['POST'])
