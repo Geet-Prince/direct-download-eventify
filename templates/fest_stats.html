@@ -1,106 +1,470 @@
-{% extends "layout.html" %}
-
-{% block title %}
-    Stats for {{ fest.FestName if fest else "Event" }}
-{% endblock %}
-
-{% block content %}
-<div class="stats-container">
-    
-    {% if fest %}
-        <h2>Statistics for: {{ fest.FestName }}</h2>
-        <p><strong>Fest ID:</strong> {{ fest.FestID }}</p>
-        <p><strong>Date/Time:</strong> {{ fest.StartTime|replace('T', ' ') if fest.StartTime else 'N/A' }} - {{ fest.EndTime|replace('T', ' ') if fest.EndTime else 'N/A' }}</p>
-        <hr>
-    {% else %}
-         <h2>Event Statistics</h2>
-         <p class="text-danger">Error: Could not load specific fest details.</p>
-    {% endif %}
-    
-    {% if stats and stats.total_registered is defined %}
-        <h3>Summary</h3>
-        <ul>
-            <li><strong>Total Registered:</strong> {{ stats.total_registered }}</li>
-            <li><strong>Attendees Present:</strong> {{ stats.total_present }}</li>
-            <li><strong>Attendees Absent:</strong> {{ stats.total_absent }}</li>
-             {% if stats.total_registered > 0 %}
-            <li><strong>Turnout Rate:</strong> {{ (stats.total_present * 100 / stats.total_registered) | round(1) }}%</li>
-             {% endif %}
-        </ul>
-        <hr>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Statistics | Dionysus</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6a1b9a;
+            --secondary: #ffab00;
+            --accent: #00bcd4;
+            --light: #f5f5f5;
+            --dark: #212121;
+        }
         
-        <h3>Attendees Present ({{ stats.total_present }})</h3>
-        {% if stats.attendees_present %}
-            <table class="attendee-table">
-                <thead>
-                    <tr> {# Headers for Present Table #}
-                        <th>Name</th><th>Email</th><th>Mobile</th><th>College</th><th>UniqueID</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for attendee in stats.attendees_present %}
-                    <tr> {# Data row for each Present attendee #}
-                        <td>{{ attendee.Name }}</td><td>{{ attendee.Email }}</td><td>{{ attendee.Mobile }}</td><td>{{ attendee.College }}</td><td>{{ attendee.UniqueID }}</td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <p>No attendees marked as present.</p>
-        {% endif %}
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f9f6ff;
+            color: var(--dark);
+        }
+        
+        .dashboard-header {
+            background: linear-gradient(135deg, var(--primary) 0%, #8e24aa 100%);
+            color: white;
+            padding: 1.5rem 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .event-card {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 6px 15px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease;
+            background: white;
+        }
+        
+        .event-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-card {
+            border-radius: 12px;
+            overflow: hidden;
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+        }
+        
+        .stat-card .card-header {
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        .present-card .card-header {
+            background: linear-gradient(135deg, #4caf50 0%, #81c784 100%);
+        }
+        
+        .absent-card .card-header {
+            background: linear-gradient(135deg, #ff9800 0%, #ffb74d 100%);
+        }
+        
+        .total-card .card-header {
+            background: linear-gradient(135deg, var(--primary) 0%, #9c27b0 100%);
+        }
+        
+        .progress {
+            height: 8px;
+            border-radius: 4px;
+        }
+        
+        .progress-bar {
+            border-radius: 4px;
+        }
+        
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .attendee-table {
+            border-collapse: separate;
+            border-spacing: 0 8px;
+        }
+        
+        .attendee-table thead th {
+            border: none;
+            font-weight: 600;
+            color: var(--primary);
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+        
+        .attendee-table tbody tr {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+        }
+        
+        .attendee-table tbody tr:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        
+        .attendee-table td {
+            vertical-align: middle;
+            border-top: none;
+        }
+        
+        .attendee-table td:first-child {
+            border-radius: 8px 0 0 8px;
+        }
+        
+        .attendee-table td:last-child {
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .badge-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 500;
+            font-size: 0.8rem;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            border-radius: 30px;
+            padding: 8px 20px;
+            font-weight: 500;
+        }
+        
+        .btn-outline-secondary {
+            border-radius: 30px;
+            padding: 8px 20px;
+            font-weight: 500;
+        }
+        
+        .text-accent {
+            color: var(--accent);
+        }
+        
+        .hover-grow {
+            transition: transform 0.3s ease;
+        }
+        
+        .hover-grow:hover {
+            transform: scale(1.02);
+        }
+        
+        .floating-action {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 100;
+        }
+        /* Style for FAB dropdown */
+        .floating-action .dropdown-menu {
+            /* Position it above the button */
+            transform: translateY(calc(-100% - 10px)); /* 100% of menu height + 10px spacing */
+            right: 0; /* Align to the right of the button */
+            left: auto; /* Override Bootstrap's default left alignment */
+        }
+    </style>
+</head>
+<body>
+    <!-- Dashboard Header -->
+    <header class="dashboard-header shadow-sm">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="h3 mb-0">
+                        <i class="fas fa-chart-pie me-2"></i>
+                        Event Statistics
+                    </h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-0 mt-2">
+                            <li class="breadcrumb-item"><a href="{{ url_for('club_dashboard') }}" class="text-white">Dashboard</a></li>
+                            <li class="breadcrumb-item active text-white-50">Statistics</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-light dropdown-toggle" type="button" id="exportDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-download me-1"></i> Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="exportDropdown">
+                        <li><a class="dropdown-item" href="{{ url_for('export_pdf', fest_id=fest.FestID) }}"><i class="fas fa-file-pdf me-2"></i>PDF Report</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('export_excel', fest_id=fest.FestID) }}"><i class="fas fa-file-excel me-2"></i>Excel Data</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </header>
 
-        <hr>
+    <!-- Main Content -->
+    <main class="container py-4">
+        <!-- Event Info Card -->
+        <div class="event-card p-4 mb-4">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <div class="d-flex align-items-center">
+                        <div class="avatar me-3" style="background-color: var(--accent);">
+                            <i class="fas fa-calendar-alt"></i>
+                        </div>
+                        <div>
+                            <h2 class="h4 mb-1">{{ fest.FestName }}</h2>
+                            <div class="d-flex flex-wrap">
+                                <span class="badge bg-light text-dark me-2 mb-1">
+                                    <i class="fas fa-hashtag me-1"></i>ID: {{ fest.FestID }}
+                                </span>
+                                <span class="badge bg-light text-dark me-2 mb-1">
+                                    <i class="fas fa-map-marker-alt me-1"></i>{{ fest.Venue }}
+                                </span>
+                                <span class="badge bg-light text-dark mb-1">
+                                    <i class="fas fa-users me-1"></i>{{ stats.total_registered }} Registered
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mt-3 mt-md-0">
+                    <div class="text-end">
+                        <div class="text-muted small">
+                            <i class="far fa-clock me-1"></i> {{ fest.StartTime|replace('T', ' ') }} - {{ fest.EndTime|replace('T', ' ') }}
+                        </div>
+                        <div class="text-muted small mt-1">
+                            <i class="fas fa-user-clock me-1"></i> Reg. closed: {{ fest.RegistrationEndTime|replace('T', ' ') }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        {# --- ATTENDEES ABSENT TABLE - CHECK THIS SECTION CAREFULLY --- #}
-        <h3>Attendees Absent ({{ stats.total_absent }})</h3>
-        {% if stats.attendees_absent %}
-             <table class="attendee-table">
-                <thead>
-                     <tr> {# Headers for Absent Table - ENSURE THESE ARE CORRECT #}
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Mobile</th>
-                        <th>College</th>
-                        <th>UniqueID</th>
-                        <th>Registered On</th> 
-                    </tr>
-                </thead>
-                 {# V V V BODY - Ensure loop generates ROWS V V V #}
-                 <tbody> 
-                {# Loop through each attendee dictionary in the list #}
-                {% for attendee in stats.attendees_absent %}
-                     {# Create a TABLE ROW for each attendee #}
-                     <tr> 
-                        {# Create TABLE DATA CELL for each piece of info #}
-                        <td>{{ attendee.Name }}</td>      {# Access 'Name' key from dict #}
-                        <td>{{ attendee.Email }}</td>     {# Access 'Email' key #}
-                        <td>{{ attendee.Mobile }}</td>    {# Access 'Mobile' key #}
-                        <td>{{ attendee.College }}</td>   {# Access 'College' key #}
-                        <td>{{ attendee.UniqueID }}</td>  {# Access 'UniqueID' key #}
-                        <td>{{ attendee.Timestamp }}</td> {# Access 'Timestamp' key #}
-                    </tr> 
-                {% endfor %} {# End of the loop #}
-                </tbody>
-                 {# ^ ^ ^ End of TABLE BODY ^ ^ ^ #}
-            </table>
-        {% else %}
-             {% if stats.total_registered > 0 and stats.total_present == stats.total_registered %}
-                 <p>All registered attendees were present!</p>
-            {% elif stats.total_registered == 0 %}
-                 <p>No attendees were registered for this event.</p>
-            {% else %}
-                <p>No attendees marked as absent.</p>
-             {% endif %}
-        {% endif %}
-        {# --- END OF ATTENDEES ABSENT TABLE SECTION --- #}
+        <!-- Stats Summary -->
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="stat-card total-card h-100">
+                    <div class="card-header text-white">
+                        <i class="fas fa-users me-2"></i>Total Registered
+                    </div>
+                    <div class="card-body text-center">
+                        <h3 class="display-5 fw-bold">{{ stats.total_registered }}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="stat-card present-card h-100">
+                    <div class="card-header text-white">
+                        <i class="fas fa-check-circle me-2"></i>Present
+                    </div>
+                    <div class="card-body text-center">
+                        <h3 class="display-5 fw-bold">{{ stats.total_present }}</h3>
+                        <div class="progress mt-3">
+                            <div class="progress-bar bg-success" 
+                                 style="width: {{ ((stats.total_present / stats.total_registered) * 100)|round(1) if stats.total_registered > 0 else 0 }}%;">
+                            </div>
+                        </div>
+                        <small class="text-muted mt-2 d-block">
+                            {{ (stats.total_present/stats.total_registered*100)|round(1) if stats.total_registered > 0 else 0 }}% Attendance Rate
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="stat-card absent-card h-100">
+                    <div class="card-header text-white">
+                        <i class="fas fa-times-circle me-2"></i>Absent
+                    </div>
+                    <div class="card-body text-center">
+                        <h3 class="display-5 fw-bold">{{ stats.total_absent }}</h3>
+                        <div class="progress mt-3">
+                            <div class="progress-bar bg-warning" 
+                                 style="width: {{ ((stats.total_absent / stats.total_registered) * 100)|round(1) if stats.total_registered > 0 else 0 }}%;"></div>
+                            </div>
+                        </div>
+                        <small class="text-muted mt-2 d-block">
+                            {{ (stats.total_absent/stats.total_registered*100)|round(1) if stats.total_registered > 0 else 0 }}% Absentee Rate
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-    {% else %}
-        <p class="text-danger">Statistics data is unavailable for this event.</p>
-         {% if fest %} <p><small>Registration data sheet might be missing or unreadable.</small></p> {% endif %}
-    {% endif %}
-    
-    <hr>
-    <a href="{{ url_for('club_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+        <!-- Present Attendees -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white border-0">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h3 class="h5 mb-0">
+                        <i class="fas fa-user-check text-success me-2"></i>
+                        Present Attendees ({{ stats.total_present }})
+                    </h3>
+                    <span class="badge bg-success">
+                        {{ stats.attendees_present|length }} shown
+                    </span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if stats.attendees_present %}
+                <div class="table-responsive">
+                    <table class="table attendee-table">
+                        <thead>
+                            <tr>
+                                <th width="5%">#</th>
+                                <th width="25%">Attendee</th>
+                                <th width="30%">Contact</th>
+                                <th width="20%">College</th>
+                                <th width="20%">Check-in Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for attendee in stats.attendees_present %}
+                            <tr class="hover-grow">
+                                <td>{{ loop.index }}</td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar me-3">
+                                            {{ attendee.Name|first|upper if attendee.Name else '?' }}
+                                        </div>
+                                        <div>
+                                            <strong>{{ attendee.Name|default('N/A', true) }}</strong><br>
+                                            <small class="text-muted">{{ attendee.UniqueID }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {{ attendee.Email|default('N/A', true) }}<br>
+                                    <small class="text-muted">{{ attendee.Mobile|default('N/A', true) }}</small>
+                                </td>
+                                <td>{{ attendee.College|default('N/A', true) }}</td>
+                                <td>
+                                    <span class="badge bg-success badge-status">
+                                        <i class="far fa-clock me-1"></i>
+                                        {{ attendee.Timestamp|replace('T', ' ')|default('N/A', true) }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-user-slash fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No attendees marked as present yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
 
-</div>
-{% endblock %}
+        <!-- Absent Attendees -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white border-0">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h3 class="h5 mb-0">
+                        <i class="fas fa-user-times text-warning me-2"></i>
+                        Absent Attendees ({{ stats.total_absent }})
+                    </h3>
+                    <span class="badge bg-warning text-dark">
+                        {{ stats.attendees_absent|length }} shown
+                    </span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if stats.attendees_absent %}
+                <div class="table-responsive">
+                    <table class="table attendee-table">
+                        <thead>
+                            <tr>
+                                <th width="5%">#</th>
+                                <th width="25%">Attendee</th>
+                                <th width="30%">Contact</th>
+                                <th width="20%">College</th>
+                                <th width="20%">Registered On</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for attendee in stats.attendees_absent %}
+                            <tr class="hover-grow">
+                                <td>{{ loop.index }}</td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar me-3">
+                                            {{ attendee.Name|first|upper if attendee.Name else '?' }}
+                                        </div>
+                                        <div>
+                                            <strong>{{ attendee.Name|default('N/A', true) }}</strong><br>
+                                            <small class="text-muted">{{ attendee.UniqueID }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {{ attendee.Email|default('N/A', true) }}<br>
+                                    <small class="text-muted">{{ attendee.Mobile|default('N/A', true) }}</small>
+                                </td>
+                                <td>{{ attendee.College|default('N/A', true) }}</td>
+                                <td>
+                                    <span class="badge bg-secondary badge-status">
+                                        <i class="far fa-calendar me-1"></i>
+                                        {{ attendee.Timestamp|replace('T', ' ')|default('N/A', true) }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                    <p class="text-success">All registered attendees are present!</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Back Button -->
+        <div class="text-center mt-4">
+            <a href="{{ url_for('club_dashboard') }}" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-2"></i> Back to Dashboard
+            </a>
+        </div>
+    </main>
+
+    <!-- Floating Action Button -->
+    <div class="floating-action dropdown">
+        <button class="btn btn-primary btn-lg rounded-circle shadow-lg" style="width: 56px; height: 56px;" type="button" id="fabExportDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-download"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="fabExportDropdown">
+             <li><a class="dropdown-item" href="{{ url_for('export_pdf', fest_id=fest.FestID) }}"><i class="fas fa-file-pdf me-2"></i>PDF Report</a></li>
+             <li><a class="dropdown-item" href="{{ url_for('export_excel', fest_id=fest.FestID) }}"><i class="fas fa-file-excel me-2"></i>Excel Data</a></li>
+        </ul>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Simple animation for progress bars
+        document.addEventListener('DOMContentLoaded', function() {
+            const progressBars = document.querySelectorAll('.progress-bar');
+            progressBars.forEach(bar => {
+                const width = bar.style.width;
+                bar.style.width = '0'; // Start from 0
+                setTimeout(() => {
+                    bar.style.transition = 'width 0.5s ease-out'; // Add transition
+                    bar.style.width = width; // Animate to actual width
+                }, 300); // Slight delay before starting animation
+            });
+            
+            // Hover effect for table rows already handled by CSS :hover
+            // If you need more complex JS-driven hover effects, you can add them here.
+        });
+    </script>
+</body>
+</html>
