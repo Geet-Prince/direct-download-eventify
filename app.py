@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*- 
+# Standard library imports
+import base64
+from collections import defaultdict
+from datetime import datetime, timedelta
+from io import BytesIO
+from operator import itemgetter
 import os
+import traceback
 import uuid
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+
+# Third-party library imports
+from flask import (
+    Flask, render_template, request, redirect, url_for, session,
+    jsonify, flash, send_file, make_response
+)
+from fpdf import FPDF
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
 import qrcode
-from io import BytesIO
-import base64
-from datetime import datetime, timedelta 
-import traceback 
 
 # Uncomment for real password hashing
 # from werkzeug.security import generate_password_hash, check_password_hash 
@@ -267,29 +277,227 @@ def delete_fest(fest_id):
 
 # Fully Implemented Stats Route
 @app.route('/club/fest/<fest_id>/stats')
-def fest_stats(fest_id): # Ensure fest_id is parameter
-    if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
-    print(f"FestStats: Request for FestID: {fest_id}")
-    fest_info=None; individual_sheet_title="N/A"; stats={'total_registered': 0, 'total_present': 0, 'total_absent': 0, 'attendees_present': [], 'attendees_absent': []}
+
+def fest_stats(fest_id):
+    if 'club_id' not in session:
+        flash("Please login to view event statistics.", "warning")
+        return redirect(url_for('club_login'))
+
     try:
-        client,_,_,fests_master_sheet = get_master_sheet_tabs(); all_fests_data=fests_master_sheet.get_all_records();
-        fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id), None);
-        if not fest_info: flash("Fest not found.", "danger"); return redirect(url_for('club_dashboard'));
-        if str(fest_info.get('ClubID',''))!=session['club_id']: flash("Access denied.", "danger"); return redirect(url_for('club_dashboard'));
-        safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_info.get('FestName','Event'))).strip();
-        if not safe_base: safe_base="fest_event";
-        individual_sheet_title=f"{safe_base[:80]}_{fest_info.get('FestID', '')}"
-        print(f"FestStats: Accessing SS '{individual_sheet_title}'")
-        try: individual_spreadsheet=client.open(individual_sheet_title); registrations_sheet=individual_spreadsheet.worksheet("Registrations");
-        except (gspread.exceptions.SpreadsheetNotFound, gspread.exceptions.WorksheetNotFound) as sheet_err: print(f"WARN Stats: Sheet/Tab '{individual_sheet_title}' missing: {sheet_err}"); flash("Reg data sheet not found.", "warning"); return render_template('fest_stats.html', fest=fest_info, stats=stats);
-        registrations_data=registrations_sheet.get_all_records(); stats['total_registered']=len(registrations_data); present_col='Present'; headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
-        for record in registrations_data: is_present=str(record.get(present_col,'no')).strip().lower()=='yes'; attendee_details={k: record.get(k,'') for k in headers};
-        if is_present: stats['total_present']+=1; stats['attendees_present'].append(attendee_details);
-        else: stats['attendees_absent'].append(attendee_details);
-        stats['total_absent'] = stats['total_registered']-stats['total_present']
-    except Exception as e: print(f"ERROR Stats: {e}"); traceback.print_exc(); flash("Error getting stats.", "danger")
-    print(f"FestStats Render: ID {fest_id}, Total:{stats['total_registered']}, Present:{stats['total_present']}")
-    return render_template('fest_stats.html', fest=fest_info, stats=stats)
+        client, _, _, master_fests_sheet = get_master_sheet_tabs()
+        all_fests_data = master_fests_sheet.get_all_records()
+        fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None)
+
+        if not fest_info:
+            flash("Event not found.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        if str(fest_info.get('ClubID','')) != session['club_id']:
+            flash("You don't have permission to view these statistics.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        # Create sheet name
+        safe_name = "".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_info.get('FestName','Event'))).strip() or "fest_event"
+        sheet_title = f"{safe_name[:80]}_{fest_info.get('FestID','')}"
+        
+        stats = {
+            'total_registered': 0,
+            'total_present': 0,
+            'total_absent': 0,
+            'attendees_present': [],
+            'attendees_absent': [],
+            'college_stats': defaultdict(int),
+            'hourly_distribution': defaultdict(int),
+            'checkin_times': [],
+            'attendance_rate': 0
+        }
+
+        try:
+            spreadsheet = client.open(sheet_title)
+            registrations_sheet = spreadsheet.worksheet("Registrations")
+            registrations_data = registrations_sheet.get_all_records()
+            
+            stats['total_registered'] = len(registrations_data)
+            
+            for record in registrations_data:
+                present_val = str(record.get('Present', 'no')).strip().lower()
+                is_present = present_val == 'yes'
+                college = record.get('College', 'Unknown')
+                
+                attendee = {
+                    'UniqueID': record.get('UniqueID', ''),
+                    'Name': record.get('Name', ''),
+                    'Email': record.get('Email', ''),
+                    'Mobile': record.get('Mobile', ''),
+                    'College': college,
+                    'Timestamp': record.get('Timestamp', '')
+                }
+
+                if is_present:
+                    stats['total_present'] += 1
+                    stats['attendees_present'].append(attendee)
+                    stats['college_stats'][college] += 1
+                    
+                    # Process check-in time
+                    ts = record.get('Timestamp')
+                    if ts:
+                        try:
+                            dt = parse_datetime(ts)
+                            stats['checkin_times'].append(dt)
+                            hour = dt.hour
+                            stats['hourly_distribution'][f"{hour:02d}:00-{hour+1:02d}:00"] += 1
+                        except:
+                            pass
+                else:
+                    stats['total_absent'] += 1
+                    stats['attendees_absent'].append(attendee)
+
+            # Calculate attendance rate
+            if stats['total_registered'] > 0:
+                stats['attendance_rate'] = (stats['total_present'] / stats['total_registered']) * 100
+
+            # Sort colleges by attendance
+            stats['college_stats'] = dict(sorted(
+                stats['college_stats'].items(),
+                key=itemgetter(1),
+                reverse=True
+            ))
+
+            # Sort hourly distribution
+            stats['hourly_distribution'] = dict(sorted(
+                stats['hourly_distribution'].items()
+            ))
+
+            # Prepare data for charts
+            stats['colleges_chart_data'] = {
+                'labels': list(stats['college_stats'].keys())[:10],  # Top 10 colleges
+                'data': list(stats['college_stats'].values())[:10]
+            }
+
+            stats['attendance_chart_data'] = {
+                'labels': ['Present', 'Absent'],
+                'data': [stats['total_present'], stats['total_absent']]
+            }
+
+            stats['hourly_chart_data'] = {
+                'labels': list(stats['hourly_distribution'].keys()),
+                'data': list(stats['hourly_distribution'].values())
+            }
+
+        except Exception as e:
+            print(f"Error accessing registration data: {e}")
+            # Don't flash error - might be new event with no registrations
+
+        return render_template('fest_stats.html', fest=fest_info, stats=stats)
+
+    except Exception as e:
+        print(f"Error in fest_stats: {e}")
+        traceback.print_exc()
+        flash("Error loading statistics", "danger")
+        return redirect(url_for('club_dashboard'))
+@app.route('/club/fest/<fest_id>/export/excel')
+def export_excel(fest_id):
+    try:
+        # 1. Verify authentication
+        if 'club_id' not in session:
+            return "Unauthorized", 401
+
+        # 2. Get fest info
+        client, _, _, master_fests_sheet = get_master_sheet_tabs()
+        all_fests_data = master_fests_sheet.get_all_records()
+        fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None)
+
+        if not fest_info:
+            return "Event not found", 404
+
+        if str(fest_info.get('ClubID','')) != session['club_id']:
+            return "Forbidden", 403
+
+        # 3. Get data
+        safe_name = "".join(c if c.isalnum() or c in [' ','_','-'] else "" 
+                          for c in str(fest_info.get('FestName','Event'))).strip() or "fest_event"
+        spreadsheet = client.open(f"{safe_name[:80]}_{fest_info.get('FestID','')}")
+        registrations_sheet = spreadsheet.worksheet("Registrations")
+        registrations_data = registrations_sheet.get_all_records()
+
+        # 4. Create Excel file
+        df = pd.DataFrame(registrations_data)
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+        output.seek(0)
+
+        # 5. Send file
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=f"{safe_name}_registrations.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    except Exception as e:
+        print(f"Excel Export Error: {str(e)}")
+        return f"Error generating Excel: {str(e)}", 500
+@app.route('/club/fest/<fest_id>/export/pdf')
+def export_pdf(fest_id):
+    if 'club_id' not in session:
+        flash("Please login to export data.", "warning")
+        return redirect(url_for('club_login'))
+
+    try:
+        # Get fest info (similar to your excel export)
+        client, _, _, master_fests_sheet = get_master_sheet_tabs()
+        all_fests_data = master_fests_sheet.get_all_records()
+        fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None)
+
+        if not fest_info:
+            flash("Event not found.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        if str(fest_info.get('ClubID','')) != session['club_id']:
+            flash("Unauthorized access.", "danger")
+            return redirect(url_for('club_dashboard'))
+
+        # Get data
+        safe_name = "".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_info.get('FestName','Event'))).strip() or "fest_event"
+        spreadsheet = client.open(f"{safe_name[:80]}_{fest_info.get('FestID','')}")
+        registrations_sheet = spreadsheet.worksheet("Registrations")
+        registrations_data = registrations_sheet.get_all_records()
+
+        # Create PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        
+        # Add title
+        pdf.cell(200, 10, txt=f"Event Report: {fest_info.get('FestName','')}", ln=1, align='C')
+        pdf.ln(10)
+        
+        # Add table headers
+        pdf.cell(40, 10, "Name", border=1)
+        pdf.cell(60, 10, "Email", border=1)
+        pdf.cell(30, 10, "College", border=1)
+        pdf.cell(30, 10, "Status", border=1)
+        pdf.ln()
+        
+        # Add data rows
+        for row in registrations_data:
+            pdf.cell(40, 10, row.get('Name',''), border=1)
+            pdf.cell(60, 10, row.get('Email',''), border=1)
+            pdf.cell(30, 10, row.get('College',''), border=1)
+            pdf.cell(30, 10, "Present" if str(row.get('Present','')).lower() == 'yes' else "Absent", border=1)
+            pdf.ln()
+
+        # Generate response
+        response = make_response(pdf.output(dest='S').encode('latin1'))
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename={safe_name}_report.pdf'
+        return response
+
+    except Exception as e:
+        print(f"Error exporting PDF: {e}")
+        flash("Failed to export PDF report.", "danger")
+        return redirect(url_for('club_dashboard'))
 
 # === Attendee Routes === (Assuming Correct from previous versions)
 @app.route('/events')
