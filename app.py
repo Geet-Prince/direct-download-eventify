@@ -489,7 +489,8 @@ def export_pdf(fest_id):
             pdf.ln()
 
         # Generate response
-        response = make_response(pdf.output(dest='S').encode('latin1'))
+        pdf_output_bytes = pdf.output(dest='S')
+        response = make_response(pdf_output_bytes)
         response.headers['Content-Type'] = 'application/pdf'
         response.headers['Content-Disposition'] = f'attachment; filename={safe_name}_report.pdf'
         return response
