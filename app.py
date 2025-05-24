@@ -660,7 +660,6 @@ def join_event(fest_id_param):
         flash("An unexpected registration error occurred. Please try again.", "danger"); 
         return redirect(url_for('event_detail', fest_id_param=fest_id_param));
 
-# === Security Routes ===
 @app.route('/security/login', methods=['GET', 'POST'])
 def security_login():
     if request.method == 'POST':
@@ -668,30 +667,21 @@ def security_login():
         if not username or not event_name_password: flash("All fields required.", "danger"); return render_template('security_login.html')
         if username == 'security':
             try:
-                all_fests_data = get_all_fests_cached()
-                now = datetime.now(); valid_event = None
-                for f in all_fests_data:
-                    if str(f.get('FestName',''))==event_name_password and str(f.get('Published','')).strip().lower()=='yes':
-                        start_time, end_time = parse_datetime(f.get('StartTime','')), parse_datetime(f.get('EndTime',''))
-                        if start_time:
-                            scan_window_start = start_time - timedelta(hours=1)
-                            scan_window_end = (end_time + timedelta(hours=2)) if end_time else datetime.max 
-                            if scan_window_start <= now <= scan_window_end:
-                                valid_event = f; break
+                _,_,_,fests_sheet = get_master_sheet_tabs(); all_fests_data=fests_sheet.get_all_records();
+                valid_event = next((f for f in all_fests_data if str(f.get('FestName',''))==event_name_password and str(f.get('Published','')).strip().lower()=='yes'), None);
                 if valid_event:
                     session['security_event_name'] = valid_event.get('FestName','N/A'); session['security_event_id'] = valid_event.get('FestID','N/A');
-                    safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(valid_event.get('FestName','Event'))).strip() or "fest_event";
+                    safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(valid_event.get('FestName','Event'))).strip();
+                    if not safe_base: safe_base="fest_event";
                     session['security_event_sheet_title']=f"{safe_base[:80]}_{valid_event.get('FestID','')}";
                     flash(f"Security access for: {session['security_event_name']}", "success"); return redirect(url_for('security_scanner'));
-                else: flash("Invalid event password or event inactive/unpublished/not currently scannable.", "danger")                        
-            except Exception as e: print(f"ERROR: Security login: {e}"); traceback.print_exc(); flash("Security login error.", "danger")
+                else: flash("Invalid event password or event inactive.", "danger")
+            except Exception as e: print(f"ERROR: Security login failed: {e}"); traceback.print_exc(); flash("Security login error.", "danger")
         else: flash("Invalid security username.", "danger")
     return render_template('security_login.html')
 
 @app.route('/security/logout')
-def security_logout():
-    session.pop('security_event_name', None); session.pop('security_event_id', None); session.pop('security_event_sheet_title', None)
-    flash("Security session ended.", "info"); return redirect(url_for('security_login'))
+def security_logout(): session.clear(); flash("Security session ended.", "info"); return redirect(url_for('security_login'))
 
 @app.route('/security/scanner')
 def security_scanner():
@@ -700,11 +690,13 @@ def security_scanner():
 
 @app.route('/security/verify_qr', methods=['POST'])
 def verify_qr():
+     # (Assumed correct)
     if 'security_event_sheet_title' not in session or 'security_event_id' not in session: return jsonify({'status': 'error', 'message': 'Security session invalid.'}), 401
-    data = request.get_json(); qr_content = data.get('qr_data') if data else None
-    if not qr_content: return jsonify({'status': 'error', 'message': 'No QR data.'}), 400
-    try:
-        parsed_data={};
+    data = request.get_json();
+    if not data or 'qr_data' not in data: return jsonify({'status': 'error', 'message': 'No QR data.'}), 400
+    qr_content = data.get('qr_data'); print(f"VerifyQR POST: QR={qr_content}")
+    try: 
+        parsed_data={}; scanned_unique_id=None; scanned_fest_id=None
         for item in qr_content.split(','):
             if ':' in item: key, value = item.split(':', 1); parsed_data[key.strip()] = value.strip()
         scanned_unique_id = parsed_data.get('UniqueID'); scanned_fest_id = parsed_data.get('FestID');
@@ -712,49 +704,23 @@ def verify_qr():
         if scanned_fest_id != session.get('security_event_id'): return jsonify({'status':'error', 'message':'QR for wrong event.'}), 400
     except Exception as e: print(f"ERROR parsing QR: {e}"); return jsonify({'status':'error', 'message':'Invalid QR format.'}), 400
     try:
-        g_client, _, _, _ = get_sheet_objects_cached()
-        sheet_title = session['security_event_sheet_title']; 
-        
-        reg_sheet = get_or_create_worksheet(g_client, sheet_title, "Registrations");
-        
-        try:
-            cell = reg_sheet.find(scanned_unique_id, in_column=1)
-        except gspread.exceptions.CellNotFound:
-             return jsonify({'status':'error', 'message':'Participant not found (QR UID not in sheet).'}), 404
-        
-        row_data=reg_sheet.row_values(cell.row);
-        sheet_headers = reg_sheet.row_values(1)
+        client = get_gspread_client(); sheet_title = session['security_event_sheet_title']; headers = ['UniqueID','Name','Email','Mobile','College','Present','Timestamp']
+        print(f"VerifyQR: Checking SS '{sheet_title}' for UID '{scanned_unique_id}'")
+        reg_sheet = get_or_create_worksheet(client, sheet_title, "Registrations", headers);
+        try: cell = reg_sheet.find(scanned_unique_id, in_column=1)
+        except gspread.exceptions.CellNotFound: print(f"VerifyQR ERROR: UID '{scanned_unique_id}' not found."); return jsonify({'status':'error', 'message':'Participant not found.'}), 404
+        if cell:
+             row_data=reg_sheet.row_values(cell.row); p_idx,n_idx,e_idx,m_idx = 5,1,2,3; 
+             def get_val(idx): return row_data[idx] if len(row_data)>idx else '';
+             status,name,email,mobile = get_val(p_idx),get_val(n_idx),get_val(e_idx),get_val(m_idx)
+             if str(status).strip().lower() == 'yes':
+                 print(f"VerifyQR WARN: Already present: {name}"); return jsonify({'status':'warning','message':'ALREADY SCANNED!', 'name':name,'details':f"{email}, {mobile}"})
+             print(f"VerifyQR: Marking present: {name}"); reg_sheet.update_cell(cell.row, p_idx+1, 'yes');
+             return jsonify({'status':'success','message':'Access Granted!','name':name,'details':f"{email}, {mobile}"});
+        else: 
+             print(f"VerifyQR ERROR: UID '{scanned_unique_id}' not found (fallback)."); return jsonify({'status':'error','message':'Participant not found.'}), 404;
+    except Exception as e: print(f"ERROR: Verify QR failed: {e}"); traceback.print_exc(); return jsonify({'status':'error', 'message':'Verification server error.'}), 500
 
-        try:
-            p_idx = sheet_headers.index('Present')
-            n_idx = sheet_headers.index('Name')
-            e_idx = sheet_headers.index('Email')
-            ts_idx = sheet_headers.index('Timestamp')
-        except ValueError as header_err:
-            print(f"ERROR: Header mismatch ('Present', 'Name', 'Email', or 'Timestamp') in sheet '{sheet_title}': {header_err}")
-            return jsonify({'status':'error', 'message':'Sheet configuration error. Contact admin.'}), 500
-
-        def get_val(idx, default=''): return row_data[idx] if len(row_data)>idx else default
-        
-        current_scan_timestamp = datetime.now().strftime(DATETIME_DISPLAY_FORMAT)
-        
-        if get_val(p_idx).strip().lower() == 'yes': 
-            last_scan_time = get_val(ts_idx, "previously")
-            return jsonify({'status':'warning','message':'ALREADY SCANNED!', 'name':get_val(n_idx),'details':f"Email: {get_val(e_idx)}, Scanned: {last_scan_time}"})
-        
-        updates = [
-            {'range': gspread.utils.rowcol_to_a1(cell.row, p_idx + 1), 'values': [['yes']]},
-            {'range': gspread.utils.rowcol_to_a1(cell.row, ts_idx + 1), 'values': [[current_scan_timestamp]]}
-        ]
-        reg_sheet.batch_update(updates)
-        
-        return jsonify({'status':'success','message':'Access Granted!','name':get_val(n_idx),'details':f"Email: {get_val(e_idx)}, Checked-in: {current_scan_timestamp}"});
-    except gspread.exceptions.SpreadsheetNotFound:
-        return jsonify({'status':'error', 'message':'Registration sheet not found for this event.'}), 404
-    except Exception as e: 
-        print(f"ERROR: Verify QR sheet op: {e}"); 
-        traceback.print_exc(); 
-        return jsonify({'status':'error', 'message':'Verification server error.'}), 500
 
 # --- Initialization Function ---
 def initialize_application_on_startup():
