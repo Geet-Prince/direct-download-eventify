@@ -1,18 +1,18 @@
 {% extends "layout.html" %}
 
 {% block title %}
-    Club Portal Login - Eventify
+    Club Portal Login - Dionysus
 {% endblock %}
 
 {% block head_styles %}
 <style>
-    /* --- Login Page Specific Styles --- */
+    /* --- Login Page Specific Styles (Keep all your existing styles here) --- */
     html, body { margin: 0; padding: 0; height: 100%; }
-    body.theme-dionysus.login-active-page { /* Ensure 'theme-eventify' is on your body if needed by this style */
+    body.theme-dionysus.login-active-page {
         display: flex; flex-direction: column;
         background: linear-gradient(135deg, #6a1b9a 0%, #8e24aa 30%, #ab47bc 70%, #ce93d8 100%);
     }
-    .site-main.login-page-container { /* This targets your layout.html's main content area */
+    .site-main.login-page-container {
         flex-grow: 1; padding: 0; display: flex; align-items: center; justify-content: center; width: 100%; overflow-y: auto;
     }
     body.login-active-page .site-header, body.login-active-page .site-footer { display: none !important; }
@@ -24,7 +24,7 @@
         box-shadow: 0 10px 35px rgba(0, 0, 0, 0.2); text-align: center; color: #ffffff; margin: 1rem 0;
     }
     .login-card h2 { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 2.2rem; margin-bottom: 0.75rem; color: #fff; letter-spacing: 0.5px; }
-    .login-card h2 .fa-shield-alt { margin-right: 10px; opacity: 0.8; } /* Ensure FontAwesome is linked */
+    .login-card h2 .fa-shield-alt { margin-right: 10px; opacity: 0.8; }
     .login-card .subtext { font-family: 'Poppins', sans-serif; color: rgba(255, 255, 255, 0.85); margin-bottom: 2.5rem; font-size: 1rem; line-height: 1.6; }
     .login-card .form-group { margin-bottom: 1.75rem; text-align: left; position: relative; }
     .login-card .form-group label { display: block; font-family: 'Poppins', sans-serif; font-weight: 500; margin-bottom: 0.5rem; color: rgba(255, 255, 255, 0.9); font-size: 0.9rem; }
@@ -39,19 +39,14 @@
     .login-card .form-group input::placeholder { color: rgba(255, 255, 255, 0.6); opacity: 1; }
     .login-card .form-group input:focus { background: rgba(255, 255, 255, 0.25); border-color: var(--dionysus-accent, #ffd700); outline: none; box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.3); }
     .login-card .form-group input:focus ~ .input-icon { color: var(--dionysus-accent, #ffd700); }
-    .login-card .btn-login { /* Styles for the LOG IN button */
+    .login-card .btn-login {
         width: 100%; padding: 0.9rem 1.5rem; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 1.1rem;
         border-radius: 10px; border: none; cursor: pointer; transition: background-color 0.2s ease-in-out, transform 0.1s ease, box-shadow 0.2s ease;
-        margin-top: 1rem; background-color: var(--dionysus-accent, #ffd700); /* Yellow button */
+        margin-top: 1rem; background-color: var(--dionysus-accent, #ffd700);
         color: var(--dionysus-purple-dark, #4a0e6c); text-transform: uppercase; letter-spacing: 0.5px;
     }
     .login-card .btn-login:hover { background-color: #ffc400; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
     .login-card .btn-login:active { transform: translateY(0px); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2); }
-    .login-card .register-link { /* Styles for the "New here? Create..." link */
-        margin-top: 2rem; font-family: 'Poppins', sans-serif; font-size: 0.95rem; color: rgba(255, 255, 255, 0.8);
-    }
-    .login-card .register-link a { color: var(--dionysus-accent-light, #ffe57f); font-weight: 600; text-decoration: none; transition: color 0.2s; }
-    .login-card .register-link a:hover { color: #fff; text-decoration: underline; }
     /* Flashes specific to login card */
     .flashes-login { margin-bottom: 1.5rem; width: 100%; }
     .flashes-login .flash-message { padding:0.75rem 1rem; border-radius:8px; font-size:0.9rem; text-align:left; color:#fff; background-color:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.2); display:flex; align-items:center; }
@@ -60,8 +55,17 @@
     .flashes-login .flash-message.flash-warning { background-color:rgba(255,193,7,0.6); border-color:rgba(255,193,7,0.9); color:#333; }
     .flashes-login .flash-message.flash-info { background-color:rgba(23,162,184,0.6); border-color:rgba(23,162,184,0.9); }
     .flashes-login .flash-message .flash-icon { margin-right:0.75em; font-size:1.2em; }
+
+    /* Optional: Style for an info text if you add one later */
+    .login-card .info-text {
+        margin-top: 2rem;
+        font-family: 'Poppins', sans-serif;
+        font-size: 0.95rem;
+        color: rgba(255, 255, 255, 0.8);
+    }
 </style>
 {% endblock %}
+
 
 {% block content %}
 <div class="login-card-wrapper">
@@ -99,9 +103,13 @@
             <button type="submit" class="btn btn-login">Log In</button>
         </form>
 
-        <p class="register-link">
-            New here? <a href="{{ url_for('club_register') }}">Create a Club Account</a>
+        {# The "register-link" paragraph has been completely removed. #}
+        {# You can add an alternative info text here if needed, like: #}
+        <!-- 
+        <p class="info-text">
+            For portal access, please contact the administrator.
         </p>
+        -->
     </div>
 </div>
 {% endblock %}
@@ -112,7 +120,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         // Add class to body for login page specific styling
         if (!document.body.classList.contains('theme-dionysus')) {
-            // document.body.classList.add('theme-dionysus'); // Add this if your layout doesn't set it
+            // document.body.classList.add('theme-dionysus');
         }
         document.body.classList.add('login-active-page');
 
