@@ -13,3 +13,4 @@ qrcode[pil]>=7.0.0,<8.0.0
 Pillow>=9.0.0,<11.0.0
 gunicorn>=20.0.0,<22.0.0
 google-auth>=2.0.0,<3.0.0 
+google-api-python-client>=2.0.0,<3.0.0
