@@ -4,20 +4,113 @@
     Live & Upcoming Events
 {% endblock %}
 
+{% block head_styles %}
+{# Add any page-specific styles here or link a stylesheet if needed #}
+<style>
+    .events-container {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 1rem;
+    }
+    .events-container h2 {
+        text-align: center;
+        margin-bottom: 1rem;
+        color: #333; /* Or your theme color */
+    }
+    .events-container > p { /* The paragraph directly under h2 */
+        text-align: center;
+        margin-bottom: 2rem;
+        font-size: 1.1rem;
+        color: #555; /* Or your theme color */
+    }
+
+    .event-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* Responsive grid */
+        gap: 1.5rem; /* Space between cards */
+    }
+
+    /* Styles for _event_card.html should ideally be in your main style.css
+       or within _event_card.html itself if very specific.
+       But for completeness, here's a basic card style if not using a framework like Bootstrap.
+    */
+    .event-card { /* This class is on the root div in _event_card.html */
+        background-color: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        overflow: hidden; /* Ensures image corners are rounded if image is direct child */
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    }
+    .event-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+
+    .fest-card-image { /* Class for the <img> tag in _event_card.html */
+        width: 100%;
+        height: 200px; /* Or your preferred height */
+        object-fit: cover; /* Crop image to fit, or use 'contain' */
+    }
+
+    .event-card .card-body { /* Assuming this class is used in _event_card.html */
+        padding: 1rem;
+        flex-grow: 1; /* Allows body to expand and push footer down */
+    }
+    .event-card .card-header, /* Assuming this class is used in _event_card.html */
+    .event-card .card-title { /* Assuming this class is used in _event_card.html */
+        margin-top: 0;
+        margin-bottom: 0.75rem;
+        color: #333;
+    }
+     .event-card .card-text {
+        font-size: 0.9rem;
+        color: #666;
+        line-height: 1.5;
+    }
+    .event-card .event-details-preview {
+        margin-bottom: 1rem;
+    }
+
+    .event-card .card-footer { /* Assuming this class is used in _event_card.html */
+        background-color: #f8f9fa;
+        padding: 0.75rem 1rem;
+        border-top: 1px solid #e0e0e0;
+        text-align: center;
+    }
+    .event-card .btn-block { /* If you're using btn-block for full width */
+        display: block;
+        width: 100%;
+    }
+    .alert-info { /* Basic styling for the "no events" message */
+        padding: 1rem;
+        background-color: #e2f3ff;
+        border: 1px solid #b6d4fe;
+        color: #0c5464;
+        border-radius: 5px;
+        text-align: center;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="events-container">
     <h2>Events Open For Registration</h2>
     <p>Find exciting events happening soon! Registration closes at the time listed.</p>
-    
-    {% if fests %}
-        <div class="event-grid"> {# Using grid defined in earlier CSS examples #}
+
+    {% if fests and fests|length > 0 %} {# Added check for fests|length > 0 for robustness #}
+        <div class="event-grid">
             {% for fest in fests %} {# Only fests where RegistrationEndTime > now() are passed #}
-                {# Include the updated partial template #}
-                {% include '_event_card.html' %} 
+                {# This is the crucial part: it includes the content of _event_card.html for each fest #}
+                {% include '_event_card.html' %}
             {% endfor %}
         </div>
     {% else %}
-        <div class="alert alert-info">No events are currently open for registration. Please check back later!</div>
+        <div class="alert alert-info" role="alert">
+            No events are currently open for registration. Please check back later!
+        </div>
     {% endif %}
 </div>
 {% endblock %}
