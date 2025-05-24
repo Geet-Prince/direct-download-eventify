@@ -3,28 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Event Platform{% endblock %}</title>
-    
-    {# Link to Google Fonts (Optional, but recommended) #}
+    <title>{% block title %}Dionysus Events{% endblock %}</title> {# Changed default title #}
+
+    {# Fonts - Using Poppins as primary, Montserrat as secondary #}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet"> 
-    
-    {# Link to your CSS file #}
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    {# Font Awesome for Icons #}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    {# Link to your main CSS file #}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    
-    {# Include QR scanner library if needed - 'defer' helps loading #}
+
+    {# Block for page-specific CSS #}
+    {% block head_styles %}{% endblock %}
+
+    {# QR Scanner Library (defer loading) #}
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
 
 </head>
-<body>
-    {# Header contains Navigation #}
-    <header>
-         {# Apply container within nav if needed, or handle padding #}
-        <nav class="container"> 
+<body class="theme-dionysus"> {# Add a theme class to body #}
+
+    <header class="site-header">
+        {# Container keeps nav items centered but header bg is full width #}
+        <nav class="container site-nav">
             <div class="logo">
-                {# Use text or replace with an <img> tag for a logo #}
-                <a href="{{ url_for('index') }}">Eventify</a> {# Example Name #}
+                <a href="{{ url_for('index') }}">
+                
+                    <span>Dionysus</span>
+                </a>
             </div>
             <div class="hamburger" id="hamburger-button" aria-label="Toggle menu" aria-expanded="false">
                 <span></span>
@@ -32,52 +40,64 @@
                 <span></span>
             </div>
             <ul class="nav-links" id="nav-links">
-                <li><a href="{{ url_for('index') }}">Home</a></li>
+                <li><a href="{{ url_for('index') }}"><i class="fas fa-home fa-fw"></i> Home</a></li>
                 {% if session.club_id %}
-                    <li><a href="{{ url_for('club_dashboard') }}">Dashboard</a></li>
-                    <li><a href="{{ url_for('club_history') }}">History</a></li>
-                    <li><a href="{{ url_for('club_logout') }}">Logout ({{ session.club_name }})</a></li>
+                    <li><a href="{{ url_for('club_dashboard') }}"><i class="fas fa-tachometer-alt fa-fw"></i> Dashboard</a></li>
+                    <li><a href="{{ url_for('club_history') }}"><i class="fas fa-history fa-fw"></i> History</a></li>
+                    <li><a href="{{ url_for('club_logout') }}"><i class="fas fa-sign-out-alt fa-fw"></i> Logout ({{ session.club_name|truncate(15) }})</a></li>
                 {% else %}
-                    <li><a href="{{ url_for('club_login') }}">Club Portal</a></li>
+                    <li><a href="{{ url_for('club_login') }}"><i class="fas fa-users-cog fa-fw"></i> Club Portal</a></li>
                 {% endif %}
-                <li><a href="{{ url_for('live_events') }}">Live Events</a></li>
-                <li><a href="{{ url_for('security_login') }}">Security</a></li>
+                <li><a href="{{ url_for('live_events') }}"><i class="fas fa-calendar-check fa-fw"></i> Live Events</a></li>
+                <li><a href="{{ url_for('security_login') }}"><i class="fas fa-shield-alt fa-fw"></i> Security</a></li>
                 {% if session.security_event_id %}
-                     <li><a href="{{ url_for('security_scanner') }}">Scanner</a></li>
-                     <li><a href="{{ url_for('security_logout') }}">Logout Security</a></li>
+                     <li><a href="{{ url_for('security_scanner') }}"><i class="fas fa-qrcode fa-fw"></i> Scanner</a></li>
+                     <li><a href="{{ url_for('security_logout') }}"><i class="fas fa-sign-out-alt fa-fw"></i> Logout Security</a></li>
                 {% endif %}
             </ul>
         </nav>
     </header>
 
-    {# Main Content Area #}
-    <main class="container main-content"> {# Add main-content class if needed for spacing #}
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="flashes">
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category or 'info' }}">{{ message }}</div>
-                {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
+    {# Main content area - Now allows full-width content by default #}
+    {# Child templates will need to add their own '.container' if they want centered, max-width content #}
+    <main class="site-main">
+        {# Container for flashes for better alignment #}
+        <div class="flash-messages-container container">
+             {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flashes">
+                    {% for category, message in messages %}
+                        {# Use more descriptive category names if possible (e.g., success, error, warning, info) #}
+                        <div class="flash-message flash-{{ category|default('info') }}" role="alert">
+                            <i class="flash-icon fas {% if category == 'success' %}fa-check-circle{% elif category == 'danger' or category == 'error' %}fa-exclamation-triangle{% elif category == 'warning' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %}"></i>
+                            <span>{{ message }}</span>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+        </div>
 
         {% block content %}
         <!-- Page specific content goes here -->
+        <!-- IMPORTANT: Add <div class="container"> inside this block -->
+        <!-- on pages where you want centered, max-width content -->
         {% endblock %}
     </main>
 
-    {# Footer #}
-    <footer>
-         {# container class for alignment within footer #}
-         <div class="container"> 
-             {# Use context processor variable #}
-             <p>© {{ now.year }} Prince Event Platform. All rights reserved.</p> 
+    <footer class="site-footer">
+         <div class="container"> {# Keep footer content centered #}
+             <p>© {{ now.year }} Dionysus Event Platform. Created by Prince Raj.</p>
+             {# Add social links or other info if desired #}
+             {# <div class="footer-links">
+                 <a href="#">Privacy Policy</a> | <a href="#">Terms of Service</a>
+             </div> #}
         </div>
     </footer>
 
-    {# General Javascript (e.g., for hamburger) #}
+    {# General Javascript (e.g., for hamburger) - Defer loading #}
     <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
     {# Scripts block for page-specific JS #}
     {% block scripts %}{% endblock %}
 </body>
