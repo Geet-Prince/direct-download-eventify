@@ -22,6 +22,7 @@ import pandas as pd
 import qrcode
 from werkzeug.utils import secure_filename
 
+# For Google Drive API
 from google.oauth2.service_account import Credentials as GoogleAuthServiceAccountCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -39,9 +40,12 @@ if not app.secret_key:
 
 
 # --- Google Setup ---
-SCOPE_SHEETS = ['https://www.googleapis.com/auth/spreadsheets']
-SCOPE_DRIVE = ['https://www.googleapis.com/auth/drive'] # For dedicated Drive service (uploads)
-SCOPE_GSPREAD_CLIENT_DEFAULT = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'] # For gspread client
+SCOPE_SHEETS = ['https://www.googleapis.com/auth/spreadsheets'] # For direct sheet operations if ID is known
+SCOPE_DRIVE_FILE = ['https://www.googleapis.com/auth/drive.file'] # For gspread to find/create sheets by name
+SCOPE_DRIVE_FULL = ['https://www.googleapis.com/auth/drive'] # For dedicated Drive service (uploads)
+
+# Combined scope for the main gspread client, allowing it to find/create sheets by name
+SCOPE_GSPREAD_CLIENT_DEFAULT = SCOPE_SHEETS + SCOPE_DRIVE_FILE
 
 MASTER_SHEET_NAME = os.environ.get("MASTER_SHEET_NAME", 'event management')
 MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID")
@@ -75,7 +79,7 @@ def get_google_creds_dict_from_env():
     if missing_vars: raise ValueError(f"Missing Google credentials environment variables: {', '.join(missing_vars)}")
     for key, env_var_name in expected_keys_map.items(): creds_dict[key] = os.environ.get(env_var_name)
     creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-    creds_dict['universe_domain'] = os.environ.get("GOOGLE_UNIVERSE_DOMAIN", "googleapis.com")
+    creds_dict['universe_domain'] = os.environ.get("GOOGLE_UNIVERSE_DOMAIN", "googleapis.com") # For google-auth
     return creds_dict
 
 def _initialize_gspread_client_internal():
@@ -84,7 +88,8 @@ def _initialize_gspread_client_internal():
     print("Initializing gspread client from environment variables (one-time per worker)...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        # Use combined scope for gspread client as it needs to open/create individual sheets (Drive files)
+        # The gspread client needs to be able to find/create sheets (which are Drive files)
+        # So it needs at least drive.file scope in addition to spreadsheets scope.
         creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE_GSPREAD_CLIENT_DEFAULT)
         gspread_client_global = gspread.authorize(creds)
         print(f"gspread client initialized successfully with scope: {SCOPE_GSPREAD_CLIENT_DEFAULT}")
@@ -97,7 +102,7 @@ def _initialize_drive_service_internal():
     print("Initializing Google Drive service from environment variables (one-time per worker)...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        creds = GoogleAuthServiceAccountCredentials.from_service_account_info(creds_dict, scopes=SCOPE_DRIVE)
+        creds = GoogleAuthServiceAccountCredentials.from_service_account_info(creds_dict, scopes=SCOPE_DRIVE_FULL) # Use full drive scope for flexibility
         drive_service_global = build('drive', 'v3', credentials=creds, cache_discovery=False)
         print("Google Drive service initialized successfully.")
         return drive_service_global
@@ -112,7 +117,7 @@ def _initialize_master_sheets_internal():
         return get_gspread_client_cached(), master_spreadsheet_obj_global, clubs_sheet_obj_global, fests_sheet_obj_global
 
     print("Initializing master sheet objects (one-time per worker)...")
-    client = get_gspread_client_cached() # This client now has Sheets + Drive.file scopes
+    client = get_gspread_client_cached() # This client has Sheets + Drive.file scopes
     spreadsheet = None
     if MASTER_SHEET_ID:
         try:
@@ -156,6 +161,7 @@ def _initialize_master_sheets_internal():
         try: fests_sheet_obj_global.update_cell(1, len(fests_headers), 'FestImageLink'); print("Added 'FestImageLink' header.")
         except Exception as he: print(f"ERROR adding 'FestImageLink' header: {he}.")
     elif current_fests_headers != fests_headers : print("WARN: Fests headers differ significantly.")
+    else: print("Fests sheet headers appear correct.")
     
     print("Master sheets initialized globally.")
     return client, master_spreadsheet_obj_global, clubs_sheet_obj_global, fests_sheet_obj_global
@@ -172,19 +178,19 @@ def get_all_fests_cached():
     return _cached_fests_data_all
 
 def upload_to_drive(file_stream, filename, target_folder_id):
-    if not target_folder_id: print("ERROR: Drive folder ID not configured."); return None
+    if not target_folder_id: print("ERROR: Drive folder ID not configured."); flash("Image upload system error.", "danger"); return None
     try:
         drive_service = get_drive_service_cached()
         file_metadata = {'name': filename, 'parents': [target_folder_id]}
-        media = MediaIoBaseUpload(file_stream, mimetype='application/octet-stream', resumable=True)
+        media = MediaIoBaseUpload(file_stream, mimetype='application/octet-stream', resumable=True) # Or more specific mimetype
         created_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         file_id = created_file.get('id')
         drive_service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
         print(f"Drive Upload: File ID: {file_id}, Name: {filename}, Public permission set.")
         return f"https://drive.google.com/uc?export=view&id={file_id}"
-    except Exception as e: print(f"ERROR uploading '{filename}' to Drive: {e}"); traceback.print_exc(); return None
+    except Exception as e: print(f"ERROR uploading '{filename}' to Drive: {e}"); traceback.print_exc(); flash(f"Image upload to Drive failed: {e}", "danger"); return None
 
-def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title): # Assumed correct
+def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
     if not email_address or "@" not in email_address: print(f"Skipping sharing '{sheet_title}': Invalid email '{email_address}'."); return False
     if not hasattr(spreadsheet, 'list_permissions') or not hasattr(spreadsheet, 'share'): print(f"WARNING: Invalid SS object for sharing '{sheet_title}'."); return False
     try:
@@ -197,27 +203,27 @@ def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title): # As
         print(f"Sharing ensured for '{sheet_title}' with {email_address}."); return True
     except Exception as share_e: print(f"\nWARN: Share error for '{sheet_title}' with {email_address}: {share_e}\n"); return False
 
-def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_title, headers=None): # Using corrected version
+def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_title, headers=None):
     spreadsheet_obj = None; worksheet = None; headers = headers or []; ws_created_now = False
     try:
         if isinstance(spreadsheet_title_or_obj, gspread.Spreadsheet): spreadsheet_obj = spreadsheet_title_or_obj
-        else: spreadsheet_obj = client_param.open(spreadsheet_title_or_obj) # This now uses client with drive.file scope
+        else: spreadsheet_obj = client_param.open(spreadsheet_title_or_obj) # This client has drive.file scope
     except gspread.exceptions.SpreadsheetNotFound:
-        print(f"Individual SS '{spreadsheet_title_or_obj}' not found. Creating..."); spreadsheet_obj = client_param.create(spreadsheet_title_or_obj) # Needs drive.file scope
+        print(f"Individual SS '{spreadsheet_title_or_obj}' not found. Creating..."); spreadsheet_obj = client_param.create(spreadsheet_title_or_obj)
         print(f"Created SS '{spreadsheet_obj.title}'.");
         if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet_obj, YOUR_PERSONAL_EMAIL, spreadsheet_obj.title)
-    except Exception as e: print(f"ERROR getting SS '{spreadsheet_title_or_obj}': {e}"); traceback.print_exc(); raise # Add traceback
+    except Exception as e: print(f"ERROR getting SS '{spreadsheet_title_or_obj}': {e}"); traceback.print_exc(); raise
     if not spreadsheet_obj: raise Exception(f"Failed to get spreadsheet handle for '{spreadsheet_title_or_obj}'.")
     try: worksheet = spreadsheet_obj.worksheet(worksheet_title)
     except gspread.exceptions.WorksheetNotFound:
         ws_cols = len(headers) if headers else 10; worksheet = spreadsheet_obj.add_worksheet(title=worksheet_title, rows=1, cols=ws_cols); ws_created_now = True
-    except Exception as e: print(f"ERROR getting WS '{worksheet_title}': {e}"); traceback.print_exc(); raise # Add traceback
+    except Exception as e: print(f"ERROR getting WS '{worksheet_title}': {e}"); traceback.print_exc(); raise
     if not worksheet: raise Exception(f"Failed to get worksheet handle for '{worksheet_title}'.")
     try:
         first_row = worksheet.row_values(1) if not ws_created_now and worksheet.row_count >= 1 else []
         if headers and (ws_created_now or not first_row): worksheet.append_row(headers); worksheet.resize(rows=500);
         elif headers and first_row != headers: print(f"WARN: Headers mismatch WS '{worksheet_title}'! Sheet: {first_row}, Expected: {headers}")
-    except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}"); traceback.print_exc() # Add traceback
+    except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}"); traceback.print_exc()
     return worksheet
 
 
@@ -237,12 +243,9 @@ def inject_now(): return {'now': datetime.now()}
 @app.route('/')
 def index(): return render_template('index.html')
 
-# === Routes (Club, Fest Management, Attendee, Security) ===
-# (All routes will now use get_sheet_objects_cached() or get_all_fests_cached())
-
+# === Club Routes ===
 @app.route('/club/register', methods=['GET', 'POST'])
 def club_register():
-    # ... (Logic for club registration) ...
     if request.method == 'POST':
         club_name=request.form.get('club_name','').strip();email=request.form.get('email','').strip().lower();password=request.form.get('password','');confirm_password=request.form.get('confirm_password','')
         if not all([club_name,email,password,confirm_password]): flash("All fields required.", "danger"); return render_template('club_register.html')
@@ -258,10 +261,8 @@ def club_register():
         except Exception as e: print(f"ERROR: ClubReg Op: {e}"); traceback.print_exc(); flash("Registration error.", "danger")
     return render_template('club_register.html')
 
-
 @app.route('/club/login', methods=['GET', 'POST'])
 def club_login():
-    # ... (Logic for club login, using get_sheet_objects_cached) ...
     if request.method == 'POST':
         email_form = request.form.get('email','').strip().lower(); password_form = request.form.get('password','')
         print(f"DEBUG LOGIN: Attempt. Email: '{email_form}', Pass: '{password_form}'")
@@ -324,7 +325,7 @@ def create_fest():
             global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None; print("INFO: All fests cache invalidated.")
             safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_name)).strip() or "fest_event";
             safe_sheet_title=f"{safe_base[:80]}_{fest_id}"; event_headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
-            get_or_create_worksheet(g_client, safe_sheet_title, "Registrations", event_headers);
+            get_or_create_worksheet(g_client, safe_sheet_title, "Registrations", event_headers); # This uses the g_client with correct scopes
             flash(f"Fest '{fest_name}' created!", "success"); return redirect(url_for('club_dashboard'));
         except Exception as e: print(f"ERROR: Create Fest write: {e}"); traceback.print_exc(); flash("DB write error.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
     return render_template('create_fest.html', form_data={})
@@ -633,24 +634,25 @@ def verify_qr():
 def initialize_application_on_startup():
     print("\n----- Initializing Application on Startup -----")
     try:
-        get_sheet_objects_cached()
+        get_sheet_objects_cached() # Triggers one-time load of client and master sheets
         print("Initial check/load of Google services complete.")
     except ValueError as ve: 
         print(f"🔴🔴🔴 FATAL STARTUP ERROR (Credentials): {ve}")
+        print("Application will exit. Please check GOOGLE_... environment variables.")
         exit(1)
     except Exception as e:
-        print(f"CRITICAL INIT ERROR: {e}"); traceback.print_exc();
-        exit(1)
+        print(f"CRITICAL INIT ERROR during application startup: {e}"); traceback.print_exc();
+        exit(1) # Exit if core services can't initialize
     print("----- Application Initialization Complete -----\n")
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
-    if not FEST_IMAGES_DRIVE_FOLDER_ID: print("\n🔴 WARNING: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set.\n")
-    if not MASTER_SHEET_ID: print("\n🔴 WARNING: MASTER_SHEET_ID not set. Opening master sheet will rely on name search and might be slower or fail due to scopes.\n")
+    if not FEST_IMAGES_DRIVE_FOLDER_ID: print("\n🔴 WARNING: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set. Image uploads WILL FAIL.\n")
+    if not MASTER_SHEET_ID: print("\n🔴 WARNING: MASTER_SHEET_ID not set. Opening master sheet will rely on name search (slower, may hit scope issues if gspread client scope is too narrow).\n")
     
-    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true": # For Flask's reloader
         if not os.environ.get('FLASK_SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY') == "temp_dev_secret_key_for_flask_reloader_only_SET_IN_ENV":
-            print("\n🔴 WARNING: FLASK_SECRET_KEY not securely set via environment variable for the main process.\n")
+            print("\n🔴 WARNING: FLASK_SECRET_KEY not securely set for main process. SET THIS IN YOUR ENVIRONMENT.\n")
         print("Flask starting up - Main process: Initializing...")
         initialize_application_on_startup()
         print("Flask startup - Main process: Initialization complete.")
