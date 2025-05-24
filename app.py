@@ -219,24 +219,67 @@ def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
     except Exception as share_e: print(f"\nWARN: Share error for '{sheet_title}' with {email_address}: {share_e}\n"); return False
 
 def get_or_create_worksheet(client, spreadsheet_title, worksheet_title, headers=None):
-    spreadsheet=None; worksheet=None; headers=headers or []; ws_created_now = False
-    try: print(f"Opening/Creating individual SS: '{spreadsheet_title}'"); spreadsheet = client.open(spreadsheet_title); print(f"Opened SS: '{spreadsheet.title}'")
-    except gspread.exceptions.SpreadsheetNotFound: print(f"Individual SS '{spreadsheet_title}' not found. Creating..."); spreadsheet = client.create(spreadsheet_title); print(f"Created SS '{spreadsheet.title}'."); if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, spreadsheet.title);
-    except Exception as e: print(f"ERROR getting SS '{spreadsheet_title}': {e}"); raise
-    if not spreadsheet: raise Exception("Failed SS handle.")
-    try: worksheet = spreadsheet.worksheet(worksheet_title); print(f"Found WS '{worksheet_title}'.")
-    except gspread.exceptions.WorksheetNotFound: print(f"WS '{worksheet_title}' not found. Creating..."); ws_cols=len(headers) if headers else 10; worksheet = spreadsheet.add_worksheet(title=worksheet_title,rows=1,cols=ws_cols); ws_created_now = True; print(f"WS '{worksheet_title}' created.")
-    except Exception as e: print(f"ERROR getting WS '{worksheet_title}': {e}"); raise
-    if not worksheet: raise Exception("Failed WS handle.")
+    spreadsheet = None
+    worksheet = None
+    headers = headers or []
+    ws_created_now = False
     try:
-        first_row = []; count = worksheet.row_count
-        if not ws_created_now and count >= 1:
-             try: first_row = worksheet.row_values(1)
-             except Exception as api_e: print(f"Note: API error get row 1 for '{worksheet_title}': {api_e}")
-        if headers and (ws_created_now or not first_row): print(f"Appending headers to '{worksheet_title}'..."); worksheet.append_row(headers); print("Headers appended."); worksheet.resize(rows=500);
-        elif headers and first_row != headers: print(f"WARN: Headers mismatch WS '{worksheet_title}'! Sheet: {first_row}, Expected: {headers}")
-        else: print(f"Headers OK/Not Needed for WS '{worksheet_title}'.")
-    except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}")
+        print(f"Opening/Creating individual SS: '{spreadsheet_title}'")
+        spreadsheet = client.open(spreadsheet_title)
+        print(f"Opened SS: '{spreadsheet.title}'")
+    except gspread.exceptions.SpreadsheetNotFound:
+        print(f"Individual SS '{spreadsheet_title}' not found. Creating...")
+        spreadsheet = client.create(spreadsheet_title)
+        print(f"Created SS '{spreadsheet.title}'.")
+        # Share it if an email is provided
+        if YOUR_PERSONAL_EMAIL: # This 'if' needs to be on its own line or part of a properly structured block
+            share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, spreadsheet.title)
+    except Exception as e:
+        print(f"ERROR getting SS '{spreadsheet_title}': {e}")
+        raise
+    
+    if not spreadsheet:
+        raise Exception(f"Failed to get or create spreadsheet handle for '{spreadsheet_title}'.") # More informative
+    
+    try:
+        worksheet = spreadsheet.worksheet(worksheet_title)
+        print(f"Found WS '{worksheet_title}'.")
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"WS '{worksheet_title}' not found. Creating...")
+        ws_cols = len(headers) if headers else 10
+        worksheet = spreadsheet.add_worksheet(title=worksheet_title, rows=1, cols=ws_cols)
+        ws_created_now = True
+        print(f"WS '{worksheet_title}' created.")
+    except Exception as e:
+        print(f"ERROR getting WS '{worksheet_title}': {e}")
+        raise
+        
+    if not worksheet:
+        raise Exception(f"Failed to get or create worksheet handle for '{worksheet_title}'.") # More informative
+
+    try:
+        first_row = []
+        # Only try to get row_values if the worksheet has rows and wasn't just created
+        if not ws_created_now and worksheet.row_count >= 1:
+             try:
+                 first_row = worksheet.row_values(1)
+             except Exception as api_e: # Catch potential API errors during row_values
+                 print(f"Note: API error getting row 1 for '{worksheet_title}': {api_e}")
+        
+        if headers and (ws_created_now or not first_row):
+            print(f"Appending headers to '{worksheet_title}'...")
+            worksheet.append_row(headers)
+            print("Headers appended.")
+            worksheet.resize(rows=500) # Default resize
+        elif headers and first_row != headers:
+            print(f"WARN: Headers mismatch in WS '{worksheet_title}'!")
+            print(f"Sheet Headers: {first_row}")
+            print(f"Expected Headers: {headers}")
+        else:
+            print(f"Headers OK or Not Needed for WS '{worksheet_title}'.")
+    except Exception as hdr_e:
+        print(f"ERROR during header logic for WS '{worksheet_title}': {hdr_e}")
+        # Decide if this should raise or just warn
     return worksheet
 
 
