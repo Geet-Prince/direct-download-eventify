@@ -8,7 +8,7 @@ from operator import itemgetter
 import os
 import traceback
 import uuid
-# import json # Not needed for env var auth
+# import json # Not needed if not loading from file
 
 # Third-party library imports
 from flask import (
@@ -20,12 +20,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials as GSpreadServiceAccountCredentials
 import pandas as pd
 import qrcode
-from werkzeug.utils import secure_filename
-
-# For Google Drive API
-from google.oauth2.service_account import Credentials as GoogleAuthServiceAccountCredentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+# from werkzeug.utils import secure_filename # Not needed without file uploads
 
 # from dotenv import load_dotenv # Optional for local .env files
 # load_dotenv()
@@ -40,27 +35,25 @@ if not app.secret_key:
 
 
 # --- Google Setup ---
-SCOPE_SHEETS = ['https://www.googleapis.com/auth/spreadsheets'] # For direct sheet operations if ID is known
-SCOPE_DRIVE_FILE = ['https://www.googleapis.com/auth/drive.file'] # For gspread to find/create sheets by name
-SCOPE_DRIVE_FULL = ['https://www.googleapis.com/auth/drive'] # For dedicated Drive service (uploads)
+SCOPE_SHEETS = ['https://www.googleapis.com/auth/spreadsheets']
+# SCOPE_DRIVE_FILE might be needed if opening master sheet by name is a fallback
+SCOPE_GSPREAD_CLIENT_FALLBACK = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
 
-# Combined scope for the main gspread client, allowing it to find/create sheets by name
-SCOPE_GSPREAD_CLIENT_DEFAULT = SCOPE_SHEETS + SCOPE_DRIVE_FILE
 
 MASTER_SHEET_NAME = os.environ.get("MASTER_SHEET_NAME", 'event management')
 MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID")
 YOUR_PERSONAL_EMAIL = os.environ.get("YOUR_PERSONAL_SHARE_EMAIL")
-FEST_IMAGES_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID")
+# FEST_IMAGES_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID") # REMOVED
 
 # --- Constants ---
 DATETIME_SHEET_FORMAT = '%Y-%m-%dT%H:%M'
 DATETIME_DISPLAY_FORMAT = '%Y-%m-%d %H:%M'
 DATETIME_INPUT_FORMATS = [ DATETIME_SHEET_FORMAT, DATETIME_DISPLAY_FORMAT, '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S' ]
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+# ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'} # REMOVED
 
 # --- Global Variables for Google Services ---
 gspread_client_global = None
-drive_service_global = None
+# drive_service_global = None # REMOVED
 master_spreadsheet_obj_global = None
 clubs_sheet_obj_global = None
 fests_sheet_obj_global = None
@@ -70,7 +63,7 @@ _cache_fests_timestamp_all = None
 CACHE_FESTS_DURATION = timedelta(minutes=2)
 
 # --- Helper Functions ---
-def allowed_file(filename): return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+# def allowed_file(filename): return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS # REMOVED
 
 def get_google_creds_dict_from_env():
     expected_keys_map = { "type": "GOOGLE_TYPE", "project_id": "GOOGLE_PROJECT_ID", "private_key_id": "GOOGLE_PRIVATE_KEY_ID", "private_key": "GOOGLE_PRIVATE_KEY", "client_email": "GOOGLE_CLIENT_EMAIL", "client_id": "GOOGLE_CLIENT_ID", "auth_uri": "GOOGLE_AUTH_URI", "token_uri": "GOOGLE_TOKEN_URI", "auth_provider_x509_cert_url": "GOOGLE_AUTH_PROVIDER_X509_CERT_URL", "client_x509_cert_url": "GOOGLE_CLIENT_X509_CERT_URL" }
@@ -79,7 +72,8 @@ def get_google_creds_dict_from_env():
     if missing_vars: raise ValueError(f"Missing Google credentials environment variables: {', '.join(missing_vars)}")
     for key, env_var_name in expected_keys_map.items(): creds_dict[key] = os.environ.get(env_var_name)
     creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-    creds_dict['universe_domain'] = os.environ.get("GOOGLE_UNIVERSE_DOMAIN", "googleapis.com") # For google-auth
+    # universe_domain is more for google-auth, but doesn't hurt if present for oauth2client dict
+    creds_dict['universe_domain'] = os.environ.get("GOOGLE_UNIVERSE_DOMAIN", "googleapis.com")
     return creds_dict
 
 def _initialize_gspread_client_internal():
@@ -88,28 +82,17 @@ def _initialize_gspread_client_internal():
     print("Initializing gspread client from environment variables (one-time per worker)...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        # The gspread client needs to be able to find/create sheets (which are Drive files)
-        # So it needs at least drive.file scope in addition to spreadsheets scope.
-        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE_GSPREAD_CLIENT_DEFAULT)
+        current_scope_for_gspread = SCOPE_SHEETS if MASTER_SHEET_ID else SCOPE_GSPREAD_CLIENT_FALLBACK
+        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, current_scope_for_gspread)
         gspread_client_global = gspread.authorize(creds)
-        print(f"gspread client initialized successfully with scope: {SCOPE_GSPREAD_CLIENT_DEFAULT}")
+        print(f"gspread client initialized successfully with scope: {current_scope_for_gspread}")
         return gspread_client_global
     except Exception as e: print(f"CRITICAL ERROR initializing gspread client: {e}"); traceback.print_exc(); raise
 
-def _initialize_drive_service_internal():
-    global drive_service_global
-    if drive_service_global: return drive_service_global
-    print("Initializing Google Drive service from environment variables (one-time per worker)...")
-    try:
-        creds_dict = get_google_creds_dict_from_env()
-        creds = GoogleAuthServiceAccountCredentials.from_service_account_info(creds_dict, scopes=SCOPE_DRIVE_FULL) # Use full drive scope for flexibility
-        drive_service_global = build('drive', 'v3', credentials=creds, cache_discovery=False)
-        print("Google Drive service initialized successfully.")
-        return drive_service_global
-    except Exception as e: print(f"CRITICAL ERROR initializing Google Drive service: {e}"); traceback.print_exc(); raise
-
+# def _initialize_drive_service_internal(): # REMOVED
+    # ...
 def get_gspread_client_cached(): return _initialize_gspread_client_internal()
-def get_drive_service_cached(): return _initialize_drive_service_internal()
+# def get_drive_service_cached(): return _initialize_drive_service_internal() # REMOVED
 
 def _initialize_master_sheets_internal():
     global master_spreadsheet_obj_global, clubs_sheet_obj_global, fests_sheet_obj_global
@@ -117,7 +100,7 @@ def _initialize_master_sheets_internal():
         return get_gspread_client_cached(), master_spreadsheet_obj_global, clubs_sheet_obj_global, fests_sheet_obj_global
 
     print("Initializing master sheet objects (one-time per worker)...")
-    client = get_gspread_client_cached() # This client has Sheets + Drive.file scopes
+    client = get_gspread_client_cached()
     spreadsheet = None
     if MASTER_SHEET_ID:
         try:
@@ -141,7 +124,8 @@ def _initialize_master_sheets_internal():
     master_spreadsheet_obj_global = spreadsheet
 
     clubs_headers=['ClubID','ClubName','Email','PasswordHash']
-    fests_headers=['FestID','FestName','ClubID','ClubName','StartTime','EndTime','RegistrationEndTime','Details','Published','Venue','Guests', 'FestImageLink']
+    # MODIFIED: fests_headers does NOT include 'FestImageLink'
+    fests_headers=['FestID','FestName','ClubID','ClubName','StartTime','EndTime','RegistrationEndTime','Details','Published','Venue','Guests'] 
     
     try: clubs_sheet_obj_global = master_spreadsheet_obj_global.worksheet("Clubs")
     except gspread.exceptions.WorksheetNotFound: clubs_sheet_obj_global = master_spreadsheet_obj_global.add_worksheet(title="Clubs",rows=1,cols=len(clubs_headers)); clubs_sheet_obj_global.append_row(clubs_headers); clubs_sheet_obj_global.resize(rows=100)
@@ -151,17 +135,13 @@ def _initialize_master_sheets_internal():
     except gspread.exceptions.WorksheetNotFound: fests_sheet_obj_global = master_spreadsheet_obj_global.add_worksheet(title="Fests",rows=1,cols=len(fests_headers)); fests_sheet_obj_global.append_row(fests_headers); fests_sheet_obj_global.resize(rows=100)
     
     current_fests_headers = fests_sheet_obj_global.row_values(1) if fests_sheet_obj_global.row_count >= 1 else []
-    expected_num_cols_fests = len(fests_headers); current_num_cols_in_fests_sheet = fests_sheet_obj_global.col_count
     if not current_fests_headers:
-        if current_num_cols_in_fests_sheet < expected_num_cols_fests: fests_sheet_obj_global.add_cols(expected_num_cols_fests - current_num_cols_in_fests_sheet)
+        if fests_sheet_obj_global.col_count < len(fests_headers): fests_sheet_obj_global.add_cols(len(fests_headers) - fests_sheet_obj_global.col_count)
         if fests_sheet_obj_global.row_count > 0 and fests_sheet_obj_global.get_all_values(): fests_sheet_obj_global.clear()
         fests_sheet_obj_global.append_row(fests_headers); print("Appended headers to Fests sheet.")
-    elif current_fests_headers != fests_headers and 'FestImageLink' not in current_fests_headers and current_fests_headers == fests_headers[:-1]:
-        if current_num_cols_in_fests_sheet < expected_num_cols_fests: fests_sheet_obj_global.add_cols(1)
-        try: fests_sheet_obj_global.update_cell(1, len(fests_headers), 'FestImageLink'); print("Added 'FestImageLink' header.")
-        except Exception as he: print(f"ERROR adding 'FestImageLink' header: {he}.")
-    elif current_fests_headers != fests_headers : print("WARN: Fests headers differ significantly.")
-    else: print("Fests sheet headers appear correct.")
+    elif current_fests_headers != fests_headers : 
+        print(f"WARN: Fests headers differ significantly. Current: {current_fests_headers}, Expected: {fests_headers}. Manual review may be needed.")
+    else: print("Fests sheet headers appear correct.") # Now no FestImageLink
     
     print("Master sheets initialized globally.")
     return client, master_spreadsheet_obj_global, clubs_sheet_obj_global, fests_sheet_obj_global
@@ -177,20 +157,9 @@ def get_all_fests_cached():
     except Exception as e: print(f"ERROR fetching all fests: {e}. Returning last cache or empty."); return _cached_fests_data_all or []
     return _cached_fests_data_all
 
-def upload_to_drive(file_stream, filename, target_folder_id):
-    if not target_folder_id: print("ERROR: Drive folder ID not configured."); flash("Image upload system error.", "danger"); return None
-    try:
-        drive_service = get_drive_service_cached()
-        file_metadata = {'name': filename, 'parents': [target_folder_id]}
-        media = MediaIoBaseUpload(file_stream, mimetype='application/octet-stream', resumable=True) # Or more specific mimetype
-        created_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        file_id = created_file.get('id')
-        drive_service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
-        print(f"Drive Upload: File ID: {file_id}, Name: {filename}, Public permission set.")
-        return f"https://drive.google.com/uc?export=view&id={file_id}"
-    except Exception as e: print(f"ERROR uploading '{filename}' to Drive: {e}"); traceback.print_exc(); flash(f"Image upload to Drive failed: {e}", "danger"); return None
+# def upload_to_drive(...): # REMOVED
 
-def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
+def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title): # Assumed correct
     if not email_address or "@" not in email_address: print(f"Skipping sharing '{sheet_title}': Invalid email '{email_address}'."); return False
     if not hasattr(spreadsheet, 'list_permissions') or not hasattr(spreadsheet, 'share'): print(f"WARNING: Invalid SS object for sharing '{sheet_title}'."); return False
     try:
@@ -203,11 +172,11 @@ def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
         print(f"Sharing ensured for '{sheet_title}' with {email_address}."); return True
     except Exception as share_e: print(f"\nWARN: Share error for '{sheet_title}' with {email_address}: {share_e}\n"); return False
 
-def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_title, headers=None):
+def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_title, headers=None): # Assumed correct
     spreadsheet_obj = None; worksheet = None; headers = headers or []; ws_created_now = False
     try:
         if isinstance(spreadsheet_title_or_obj, gspread.Spreadsheet): spreadsheet_obj = spreadsheet_title_or_obj
-        else: spreadsheet_obj = client_param.open(spreadsheet_title_or_obj) # This client has drive.file scope
+        else: spreadsheet_obj = client_param.open(spreadsheet_title_or_obj)
     except gspread.exceptions.SpreadsheetNotFound:
         print(f"Individual SS '{spreadsheet_title_or_obj}' not found. Creating..."); spreadsheet_obj = client_param.create(spreadsheet_title_or_obj)
         print(f"Created SS '{spreadsheet_obj.title}'.");
@@ -225,7 +194,6 @@ def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_ti
         elif headers and first_row != headers: print(f"WARN: Headers mismatch WS '{worksheet_title}'! Sheet: {first_row}, Expected: {headers}")
     except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}"); traceback.print_exc()
     return worksheet
-
 
 def generate_unique_id(): return str(uuid.uuid4().hex)[:10]
 def hash_password(password): print(f"DEBUG HASH: Placeholder for '{password}'"); return password
@@ -290,7 +258,7 @@ def club_login():
 def club_logout(): session.clear(); flash("Logged out.", "info"); return redirect(url_for('index'))
 
 @app.route('/club/create_fest', methods=['GET', 'POST'])
-def create_fest():
+def create_fest(): # MODIFIED: No image handling
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     form_data_to_pass = request.form.to_dict() if request.method == 'POST' else {}
     if request.method == 'POST':
@@ -298,18 +266,10 @@ def create_fest():
         start_time_str, end_time_str, reg_end_time_str = request.form.get('start_time', ''), request.form.get('end_time', ''), request.form.get('registration_end_time', '')
         fest_details, fest_venue, fest_guests = request.form.get('fest_details', '').strip(), request.form.get('fest_venue', '').strip(), request.form.get('fest_guests', '').strip()
         is_published = 'yes' if request.form.get('publish_fest') == 'yes' else 'no'
-        fest_image_link = ""
-        if 'fest_image' in request.files:
-            file = request.files['fest_image']
-            if file and file.filename != '' and allowed_file(file.filename):
-                filename = secure_filename(file.filename); unique_filename = f"{uuid.uuid4().hex}_{filename}"
-                file_stream = BytesIO(); file.save(file_stream); file_stream.seek(0)
-                if not FEST_IMAGES_DRIVE_FOLDER_ID: flash("Image upload server config error.", "danger"); print("ERROR: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set.")
-                else:
-                    uploaded_url = upload_to_drive(file_stream, unique_filename, FEST_IMAGES_DRIVE_FOLDER_ID)
-                    if uploaded_url: fest_image_link = uploaded_url
-                    else: flash("Failed to upload fest image.", "warning")
-            elif file and file.filename != '' and not allowed_file(file.filename): flash(f"Invalid image type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}", "warning")
+        # fest_image_link = "" # REMOVED
+
+        # REMOVED Image Upload Handling Block
+        
         required = {'Fest Name': fest_name, 'Start Time': start_time_str, 'End Time': end_time_str, 'Registration Deadline': reg_end_time_str, 'Details': fest_details}
         missing = [name for name, val in required.items() if not val]
         if missing: flash(f"Missing: {', '.join(missing)}", "danger"); return render_template('create_fest.html',form_data=form_data_to_pass)
@@ -320,12 +280,13 @@ def create_fest():
         except ValueError: flash("Invalid time format.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
         try:
             g_client, _, _, master_fests_sheet = get_sheet_objects_cached(); fest_id=generate_unique_id();
-            new_fest_row=[ fest_id, fest_name, session['club_id'], session.get('club_name','N/A'), start_dt.strftime(DATETIME_SHEET_FORMAT), end_dt.strftime(DATETIME_SHEET_FORMAT), reg_end_dt.strftime(DATETIME_SHEET_FORMAT), fest_details, is_published, fest_venue, fest_guests, fest_image_link ];
-            master_fests_sheet.append_row(new_fest_row); print(f"CreateFest: Appended ID:{fest_id}, ImgLink:'{fest_image_link}'");
+            # MODIFIED: new_fest_row does NOT include fest_image_link
+            new_fest_row=[ fest_id, fest_name, session['club_id'], session.get('club_name','N/A'), start_dt.strftime(DATETIME_SHEET_FORMAT), end_dt.strftime(DATETIME_SHEET_FORMAT), reg_end_dt.strftime(DATETIME_SHEET_FORMAT), fest_details, is_published, fest_venue, fest_guests ];
+            master_fests_sheet.append_row(new_fest_row); print(f"CreateFest: Appended ID:{fest_id}");
             global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None; print("INFO: All fests cache invalidated.")
             safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_name)).strip() or "fest_event";
             safe_sheet_title=f"{safe_base[:80]}_{fest_id}"; event_headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
-            get_or_create_worksheet(g_client, safe_sheet_title, "Registrations", event_headers); # This uses the g_client with correct scopes
+            get_or_create_worksheet(g_client, safe_sheet_title, "Registrations", event_headers);
             flash(f"Fest '{fest_name}' created!", "success"); return redirect(url_for('club_dashboard'));
         except Exception as e: print(f"ERROR: Create Fest write: {e}"); traceback.print_exc(); flash("DB write error.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
     return render_template('create_fest.html', form_data={})
@@ -337,7 +298,7 @@ def club_dashboard():
     try: all_fests_data = get_all_fests_cached()
     except Exception as e: print(f"ERROR getting cached fests dashboard: {e}"); flash("DB Error.", "danger"); return render_template('club_dashboard.html', club_name=session.get('club_name'), upcoming_fests=[], ongoing_fests=[])
     club_fests_all=[f for f in all_fests_data if str(f.get('ClubID','')) == session['club_id']]
-    for fest in club_fests_all:
+    for fest in club_fests_all: # fest object will NOT have FestImageLink from sheet now
         try:
             start_time, end_time = parse_datetime(fest.get('StartTime')), parse_datetime(fest.get('EndTime'))
             if not (start_time and end_time): continue
@@ -398,7 +359,7 @@ def end_fest(fest_id):
     return redirect(url_for('club_dashboard'))
 
 @app.route('/club/fest/<fest_id>/delete', methods=['POST'])
-def delete_fest(fest_id):
+def delete_fest(fest_id): # MODIFIED: No image deletion from Drive
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     redirect_url = request.referrer or url_for('club_dashboard')
     try:
@@ -408,20 +369,13 @@ def delete_fest(fest_id):
         if not fest_info: flash("Fest to delete not found.", "danger"); return redirect(redirect_url)
         if str(fest_info.get('ClubID',''))!=session['club_id']: flash("Permission denied.", "danger"); return redirect(redirect_url)
         fest_name_to_delete = fest_info.get('FestName', f"Fest (ID: {fest_id})")
-        image_link_to_delete = fest_info.get('FestImageLink')
+        # image_link_to_delete = fest_info.get('FestImageLink') # Not needed if not deleting from Drive
         fest_cell = fests_sheet.find(fest_id, in_column=1)
         if not fest_cell: flash("Fest to delete not found in sheet (cell).", "danger"); return redirect(redirect_url)
         fests_sheet.delete_rows(fest_cell.row)
         print(f"Fest row for '{fest_name_to_delete}' deleted from sheet.")
         global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None
-        if image_link_to_delete and 'drive.google.com' in image_link_to_delete and 'id=' in image_link_to_delete:
-            try:
-                drive_file_id = image_link_to_delete.split('id=')[-1].split('&')[0]
-                if drive_file_id:
-                    drive_service = get_drive_service_cached()
-                    drive_service.files().delete(fileId=drive_file_id).execute()
-                    print(f"Fest image '{drive_file_id}' deleted from Google Drive.")
-            except Exception as drive_del_e: print(f"WARN: Could not delete fest image from Drive: {drive_del_e}")
+        # REMOVED Drive image deletion block
         flash(f"Fest '{fest_name_to_delete}' deleted.", "success")
     except Exception as e: print(f"ERROR deleting fest {fest_id}: {e}"); traceback.print_exc(); flash("Error deleting event.", "danger")
     return redirect(redirect_url)
@@ -524,7 +478,7 @@ def live_events():
     now=datetime.now(); available_fests=[]
     try: all_fests_data = get_all_fests_cached()
     except Exception as e: print(f"ERROR getting cached fests for events: {e}"); flash("DB Error.", "danger"); return render_template('live_events.html', fests=[])
-    for fest in all_fests_data:
+    for fest in all_fests_data: # FestImageLink will NOT be in this data unless fests_headers is updated
         is_published=str(fest.get('Published','')).strip().lower()=='yes'
         reg_end_time = parse_datetime(fest.get('RegistrationEndTime',''))
         if is_published and reg_end_time and now < reg_end_time: available_fests.append(fest)
@@ -536,7 +490,7 @@ def event_detail(fest_id_param):
     fest_info=None; is_open_for_reg=False
     try: all_fests_data = get_all_fests_cached()
     except Exception as e: print(f"ERROR getting cached fests for event_detail: {e}"); flash("DB Error.", "danger"); return redirect(url_for('live_events'))
-    fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id_param), None)
+    fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id_param), None) # fest_info will NOT have FestImageLink
     if not fest_info: flash("Event not found.", "warning"); return redirect(url_for('live_events'));
     is_published = str(fest_info.get('Published','')).lower()=='yes'
     reg_end_time = parse_datetime(fest_info.get('RegistrationEndTime', ''))
@@ -634,25 +588,26 @@ def verify_qr():
 def initialize_application_on_startup():
     print("\n----- Initializing Application on Startup -----")
     try:
-        get_sheet_objects_cached() # Triggers one-time load of client and master sheets
+        get_sheet_objects_cached() # Triggers one-time load if not already done
+        # if GCS_BUCKET_NAME: get_gcs_client_cached() # REMOVED GCS specific init here for now
         print("Initial check/load of Google services complete.")
     except ValueError as ve: 
         print(f"🔴🔴🔴 FATAL STARTUP ERROR (Credentials): {ve}")
-        print("Application will exit. Please check GOOGLE_... environment variables.")
         exit(1)
     except Exception as e:
         print(f"CRITICAL INIT ERROR during application startup: {e}"); traceback.print_exc();
-        exit(1) # Exit if core services can't initialize
+        exit(1)
     print("----- Application Initialization Complete -----\n")
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
-    if not FEST_IMAGES_DRIVE_FOLDER_ID: print("\n🔴 WARNING: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set. Image uploads WILL FAIL.\n")
-    if not MASTER_SHEET_ID: print("\n🔴 WARNING: MASTER_SHEET_ID not set. Opening master sheet will rely on name search (slower, may hit scope issues if gspread client scope is too narrow).\n")
+    # REMOVED GCS_BUCKET_NAME check
+    # if not FEST_IMAGES_DRIVE_FOLDER_ID: print("\n🔴 WARNING: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set.\n") # If using Drive uploads
+    if not MASTER_SHEET_ID: print("\n🔴 WARNING: MASTER_SHEET_ID not set. Opening master sheet will rely on name search.\n")
     
-    if os.environ.get("WERKZEUG_RUN_MAIN") != "true": # For Flask's reloader
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         if not os.environ.get('FLASK_SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY') == "temp_dev_secret_key_for_flask_reloader_only_SET_IN_ENV":
-            print("\n🔴 WARNING: FLASK_SECRET_KEY not securely set for main process. SET THIS IN YOUR ENVIRONMENT.\n")
+            print("\n🔴 WARNING: FLASK_SECRET_KEY not securely set via environment variable for the main process.\n")
         print("Flask starting up - Main process: Initializing...")
         initialize_application_on_startup()
         print("Flask startup - Main process: Initialization complete.")
