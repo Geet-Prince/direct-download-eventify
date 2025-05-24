@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Dionysus Events{% endblock %}</title> {# Changed default title #}
+    <title>{% block title %}Eventify{% endblock %}</title> {# Changed default title #}
 
     {# Fonts - Using Poppins as primary, Montserrat as secondary #}
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,7 +23,7 @@
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
 
 </head>
-<body class="theme-dionysus"> {# Add a theme class to body #}
+<body class="theme-Eventify"> {# Add a theme class to body #}
 
     <header class="site-header">
         {# Container keeps nav items centered but header bg is full width #}
@@ -31,7 +31,7 @@
             <div class="logo">
                 <a href="{{ url_for('index') }}">
                 
-                    <span>Dionysus</span>
+                    <span>Eventify</span>
                 </a>
             </div>
             <div class="hamburger" id="hamburger-button" aria-label="Toggle menu" aria-expanded="false">
@@ -87,7 +87,7 @@
 
     <footer class="site-footer">
          <div class="container"> {# Keep footer content centered #}
-             <p>© {{ now.year }} Dionysus Event Platform. Created by Prince Raj.</p>
+             <p>© {{ now.year }} Eventify Event Platform. Created by Prince Raj.</p>
              {# Add social links or other info if desired #}
              {# <div class="footer-links">
                  <a href="#">Privacy Policy</a> | <a href="#">Terms of Service</a>
