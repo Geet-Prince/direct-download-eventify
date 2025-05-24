@@ -1,153 +1,244 @@
-{% extends "layout.html" %}
-
-{# Remove the standard container padding for this specific page in layout if possible,
-   or override it here for a full-width background effect.
-   We'll handle width with internal containers. #}
+{% extends "layout.html" %} {# Or base.html, whatever your main layout file is named #}
 
 {% block title %}
     Club Portal Login - Dionysus
 {% endblock %}
 
-{# Add specific styles for this page, can also go in main CSS but keeps it specific #}
-{% block styles %}
+{% block head_styles %}
 <style>
-    /* Make main take full height for background effect */
-    .login-page-main {
-        flex-grow: 1;
-        display: flex;
-        align-items: center; /* Vertically center login card */
-        justify-content: center; /* Horizontally center */
-        padding: 2rem 15px; /* Add some padding */
-        /* Option 1: Gradient Background */
-        background: linear-gradient(135deg, #6e45e2 0%, #88d3ce 100%); /* Example Purple/Teal */
-        /* Option 2: Blurred Image Background (use if image exists) */
-        /* background: url("{{ url_for('static', filename='img/login-background.jpg') }}") no-repeat center center / cover; */
-        /* background-blend-mode: overlay; /* Add overlay color if needed */ 
-        /* background-color: rgba(0, 0, 0, 0.3); /* Example dark overlay */
+    /* --- Login Page Specific Styles --- */
+
+    /* Ensure html and body allow full height and no default margins/padding */
+    /* This might be better in your global style.css if not already there */
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
     }
 
-    /* Glassmorphism Card */
-    .login-card {
-        background: rgba(255, 255, 255, 0.15); /* Semi-transparent white */
-        backdrop-filter: blur(15px); /* The blur effect */
-        -webkit-backdrop-filter: blur(15px); /* Safari */
-        border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 2.5rem 3rem;
-        max-width: 450px; /* Limit card width */
+    /* Apply styles to the body when this login page is active */
+    /* This assumes your layout.html's body has class="theme-dionysus" or similar */
+    body.theme-dionysus.login-active-page { /* Add a unique class for this page's body state */
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(135deg, #6a1b9a 0%, #8e24aa 30%, #ab47bc 70%, #ce93d8 100%);
+        /* background: #f0f4f8; /* Alternative: Soft Blue */
+    }
+
+    /* Target the main content area from layout.html specifically for the login page */
+    .site-main.login-page-container {
+        flex-grow: 1; /* Allows main to take up available space */
+        padding: 0;   /* Remove any default padding from .site-main */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%; /* Ensure it takes full width if body is also flex */
+        overflow-y: auto; /* Allow scrolling if card is too tall for viewport */
+    }
+
+    /* Hide standard header and footer for this immersive login page */
+    /* These selectors target classes assumed to be in your layout.html */
+    body.login-active-page .site-header,
+    body.login-active-page .site-footer {
+        display: none !important;
+    }
+
+    .login-card-wrapper {
+        /* This div is centered by .site-main.login-page-container's flex properties */
+        /* Add padding here if you want space *around* the card but *inside* the full-screen background */
+        padding: 20px; /* Example padding for some breathing room on small screens */
+        display: flex; /* Can also make this flex to center the card if needed, but parent should handle it */
+        justify-content: center;
+        align-items: center;
         width: 100%;
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37); /* Subtle shadow */
+    }
+
+    .login-card {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 2.5rem 3rem;
+        max-width: 480px;
+        width: 100%; /* Will be constrained by max-width and wrapper's padding */
+        box-shadow: 0 10px 35px rgba(0, 0, 0, 0.2);
         text-align: center;
-        color: #fff; /* Default text color inside card */
+        color: #ffffff;
+        margin: 1rem 0; /* Some vertical margin if content scrolls */
     }
 
     .login-card h2 {
-        color: #fff; /* White heading */
-        margin-bottom: 0.5rem;
+        font-family: 'Poppins', sans-serif;
         font-weight: 700;
-        font-size: 1.8rem;
+        font-size: 2.2rem;
+        margin-bottom: 0.75rem;
+        color: #fff;
+        letter-spacing: 0.5px;
+    }
+    .login-card h2 .fa-shield-alt {
+        margin-right: 10px;
+        opacity: 0.8;
     }
 
     .login-card .subtext {
-        color: rgba(255, 255, 255, 0.8); /* Slightly transparent white */
-        margin-bottom: 2rem;
-        font-size: 0.95rem;
+        font-family: 'Poppins', sans-serif;
+        color: rgba(255, 255, 255, 0.85);
+        margin-bottom: 2.5rem;
+        font-size: 1rem;
+        line-height: 1.6;
     }
 
-    /* Style form elements within the card */
-     .login-card .form-group label {
-        color: rgba(255, 255, 255, 0.9); /* Brighter label text */
-        text-align: left; /* Align labels left */
+    .login-card .form-group {
+        margin-bottom: 1.75rem;
+        text-align: left;
+        position: relative;
+    }
+
+    .login-card .form-group label {
+        display: block;
+        font-family: 'Poppins', sans-serif;
         font-weight: 500;
-    }
-    
-    .login-card .form-group input[type="email"],
-    .login-card .form-group input[type="password"] {
-        background: rgba(255, 255, 255, 0.2); /* Input background */
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        color: #fff; /* Input text color */
-        padding: 0.8rem 1rem;
-    }
-     /* Placeholder text color */
-    .login-card .form-group input::placeholder { 
-        color: rgba(255, 255, 255, 0.7);
-        opacity: 1; /* Override browser default */
-    }
-     /* Optional: Style focus state */
-    .login-card .form-group input:focus {
-        background: rgba(255, 255, 255, 0.3);
-        border-color: rgba(255, 255, 255, 0.5);
-        box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25); /* Focus glow */
-    }
-
-    /* Login Button Style */
-    .login-card .btn-login {
-        background-color: var(--accent-color); /* Use accent color */
-        border: none;
-        color: var(--dark-color); /* Dark text on yellow */
-        padding: 0.8rem;
-        font-size: 1.1rem;
-        font-weight: bold;
-        width: 100%;
-        margin-top: 1rem; /* Space above button */
-        transition: background-color 0.2s ease, transform 0.1s ease;
-    }
-    .login-card .btn-login:hover {
-         background-color: #ffca2c; /* Slightly lighter accent */
-         transform: translateY(-2px);
-         box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
-
-    /* Register Link Style */
-    .login-card .register-link {
-        margin-top: 1.5rem;
+        margin-bottom: 0.5rem;
+        color: rgba(255, 255, 255, 0.9);
         font-size: 0.9rem;
     }
+
+    .login-card .form-group .input-icon {
+        position: absolute;
+        left: 15px;
+        top: calc(50% + 10px); /* Adjusted for label presence and input padding */
+        transform: translateY(-50%);
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 1.1em;
+        pointer-events: none; /* So it doesn't interfere with input click */
+    }
+
+    .login-card .form-group input[type="email"],
+    .login-card .form-group input[type="password"] {
+        width: 100%;
+        padding: 1rem 1rem 1rem 3rem; /* Increased left padding for icon */
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 10px;
+        color: #fff;
+        font-family: 'Poppins', sans-serif;
+        font-size: 1rem;
+        transition: background-color 0.3s, border-color 0.3s, box-shadow 0.3s;
+        box-sizing: border-box; /* Important for width calculations with padding */
+    }
+
+    .login-card .form-group input::placeholder {
+        color: rgba(255, 255, 255, 0.6);
+        opacity: 1;
+    }
+
+    .login-card .form-group input:focus {
+        background: rgba(255, 255, 255, 0.25);
+        border-color: var(--dionysus-accent, #ffd700);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.3);
+    }
+    .login-card .form-group input:focus ~ .input-icon { /* Note the ~ sibling combinator */
+        color: var(--dionysus-accent, #ffd700);
+    }
+
+    .login-card .btn-login {
+        width: 100%;
+        padding: 0.9rem 1.5rem;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 600;
+        font-size: 1.1rem;
+        border-radius: 10px;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.2s ease-in-out, transform 0.1s ease, box-shadow 0.2s ease;
+        margin-top: 1rem;
+        background-color: var(--dionysus-accent, #ffd700);
+        color: var(--dionysus-purple-dark, #4a0e6c);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .login-card .btn-login:hover {
+        background-color: #ffc400;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    }
+    .login-card .btn-login:active {
+        transform: translateY(0px);
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .login-card .register-link {
+        margin-top: 2rem;
+        font-family: 'Poppins', sans-serif;
+        font-size: 0.95rem;
+        color: rgba(255, 255, 255, 0.8);
+    }
+
     .login-card .register-link a {
-        color: var(--accent-color); /* Use accent color for link */
-        font-weight: bold;
+        color: var(--dionysus-accent-light, #ffe57f);
+        font-weight: 600;
+        text-decoration: none;
+        transition: color 0.2s;
+    }
+
+    .login-card .register-link a:hover {
+        color: #fff;
         text-decoration: underline;
     }
-    .login-card .register-link a:hover {
-        color: #fff; /* White on hover */
-    }
 
-     /* Tip text styling (example) */
-    .input-tip {
-        font-size: 0.8em;
-        color: rgba(255, 255, 255, 0.7);
+    /* Flashes specific to login card */
+    .flashes-login {
+        margin-bottom: 1.5rem;
+        width: 100%;
+    }
+    .flashes-login .flash-message {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
         text-align: left;
-        margin-top: -0.8rem; /* Adjust positioning below input */
-        margin-bottom: 1rem;
-        padding-left: 0.2rem;
+        color: #fff; /* Default text color for flashes on this page */
+        background-color: rgba(0,0,0,0.2); /* Default semi-transparent dark bg */
+        border: 1px solid rgba(255,255,255,0.2);
     }
-
-    /* Adjust Layout wrapper if removing standard container padding */
-     {# Remove container class from main if you want full width BG #}
-     {# Or keep it and apply BG to body or a specific wrapper div #}
-    body {
-        {# Apply BG here instead of .login-page-main if nav/footer shouldn't overlay it #}
+    .flashes-login .flash-message.flash-success {
+        background-color: rgba(40, 167, 69, 0.5); /* Semi-transparent green */
+        border-color: rgba(40, 167, 69, 0.8);
     }
-
+    .flashes-login .flash-message.flash-danger,
+    .flashes-login .flash-message.flash-error {
+        background-color: rgba(220, 53, 69, 0.5); /* Semi-transparent red */
+        border-color: rgba(220, 53, 69, 0.8);
+    }
+    .flashes-login .flash-message.flash-warning {
+        background-color: rgba(255, 193, 7, 0.5); /* Semi-transparent yellow */
+        border-color: rgba(255, 193, 7, 0.8);
+        color: #333; /* Darker text for yellow bg */
+    }
+    .flashes-login .flash-message .flash-icon {
+        margin-right: 0.5em;
+    }
 
 </style>
 {% endblock %}
 
 
 {% block content %}
-{# Add a wrapper with specific class to target with CSS #}
-<div class="login-page-main"> 
+<div class="login-card-wrapper">
     <div class="login-card">
-        <h2>Welcome Back, Club Leader!</h2>
-        <p class="subtext">Log in to manage your events, registrations, QR entries, and view live updates.</p>
-        
-        {# Flash messages specific for login page, positioned inside card #}
+        <h2><i class="fas fa-shield-alt"></i> Club Portal</h2>
+        <p class="subtext">Welcome back! Manage your events and engage with the community.</p>
+
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 <div class="flashes flashes-login">
                 {% for category, message in messages %}
-                    {# Adapt alert styling if needed for glass card #}
-                    <div class="alert alert-sm alert-{{ category or 'info' }}">{{ message }}</div> 
+                    <div class="flash-message flash-{{ category|default('info')|replace('error', 'danger') }}"> {# Map 'error' to 'danger' if you use 'error' #}
+                        <i class="flash-icon fas {% if category == 'success' %}fa-check-circle{% elif category == 'danger' or category == 'error' %}fa-exclamation-triangle{% elif category == 'warning' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %}"></i>
+                        <span>{{ message }}</span>
+                    </div>
                 {% endfor %}
                 </div>
             {% endif %}
@@ -155,31 +246,39 @@
 
         <form method="POST" action="{{ url_for('club_login') }}">
             <div class="form-group">
-                <label for="email">Email Address:</label>
-                <input type="email" id="email" name="email" placeholder="yourclub@college.edu" required>
-                 <p class="input-tip">Tip: Use your registered college club email.</p>
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" placeholder="yourclub@college.edu" required
+                       value="{{ request.form.email if request and request.form else '' }}">
+                <i class="fas fa-envelope input-icon"></i> {# Icon after input for better layering control with ~ sibling selector #}
             </div>
             <div class="form-group">
-                <label for="password">Password:</label>
-                <input type="password" id="password" name="password" placeholder="Enter password" required>
-                 {# Add password toggle JS later if desired #}
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="••••••••" required>
+                <i class="fas fa-lock input-icon"></i> {# Icon after input #}
             </div>
-            <button type="submit" class="btn btn-login">Login</button>
+            <button type="submit" class="btn btn-login">Log In</button>
         </form>
 
         <p class="register-link">
-            Don't have an account? <a href="{{ url_for('club_register') }}">Register here</a>.
+            New here? <a href="{{ url_for('club_register') }}">Create a Club Account</a>
         </p>
-         {# Optional: Forgot Password Link #}
-         {# <p class="forgot-password-link"><a href="#">Forgot Password?</a></p> #}
     </div>
-    
-    {# Optional Split Screen Element (for feature showcase - basic text example) #}
-    {# <div class="feature-showcase"> #}
-    {#    <h3>Unlock Powerful Tools</h3> <p>QR Scanning | Live Analytics | Easy Publishing</p> ... #}
-    {# </div> #}
 </div>
+{% endblock %}
 
-{# Hide standard footer if login page has its own distinct BG/layout #}
-<style> footer { display: none; } </style>
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add class to body for login page specific styling
+        document.body.classList.add('login-active-page');
+
+        // Add class to the main content area (from layout.html)
+        const mainElement = document.querySelector('.site-main');
+        if (mainElement) {
+            mainElement.classList.add('login-page-container');
+        } else {
+            console.warn('.site-main element not found in layout.html. Login page centering might be affected.');
+        }
+    });
+</script>
 {% endblock %}
