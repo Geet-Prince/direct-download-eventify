@@ -124,46 +124,134 @@ def upload_to_drive(file_stream, filename, target_folder_id):
     except Exception as e: print(f"ERROR uploading '{filename}' to Drive: {e}"); traceback.print_exc(); return None
 
 def get_master_sheet_tabs():
-    client = get_gspread_client(); spreadsheet = None
+    client = get_gspread_client(); spreadsheet = None # Initialize spreadsheet to None
+    
+    # Determine client scope based on whether MASTER_SHEET_ID is set
+    # This part is crucial if open_by_name is a fallback
+    # current_scope_for_gspread = SCOPE_SHEETS
+    # if not MASTER_SHEET_ID:
+    #     print("INFO: MASTER_SHEET_ID not set, gspread client might need broader scope for name search.")
+    #     current_scope_for_gspread = SCOPE_GSPREAD_CLIENT_FALLBACK # Defined at the top of your file
+    # client = get_gspread_client(current_scope_for_gspread) # Assuming get_gspread_client can take a scope
+
+    # Simplified: Assuming get_gspread_client() is already configured with appropriate scopes
+    # (e.g., SCOPE_SHEETS if MASTER_SHEET_ID is set, or broader if it might open by name)
+
     if MASTER_SHEET_ID:
         try:
-            print(f"Opening master SS by ID: '{MASTER_SHEET_ID}'"); spreadsheet = client.open_by_key(MASTER_SHEET_ID)
+            print(f"Opening master SS by ID (key): '{MASTER_SHEET_ID}'")
+            spreadsheet = client.open_by_key(MASTER_SHEET_ID) # Use open_by_key
             print(f"Opened master SS: '{spreadsheet.title}' (ID: {spreadsheet.id})")
-        except Exception as e_id: print(f"ERROR opening master SS by ID '{MASTER_SHEET_ID}': {e_id}"); spreadsheet = None
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"Master SS with ID '{MASTER_SHEET_ID}' not found. Will try by name or create.")
+            spreadsheet = None 
+        except Exception as e_id:
+            print(f"ERROR opening master SS by ID (key) '{MASTER_SHEET_ID}': {e_id}")
+            traceback.print_exc()
+            spreadsheet = None
     
-    if not spreadsheet:
+    if not spreadsheet: # Fallback to open by name or create
+        print(f"INFO: Could not open master sheet by ID or ID not provided. Falling back to opening/creating by name: '{MASTER_SHEET_NAME}'.")
         try:
-            print(f"Attempting to open/create master SS by name: '{MASTER_SHEET_NAME}'"); spreadsheet = client.open(MASTER_SHEET_NAME)
+            # This open by name might require the client to have drive.file scope if sheet not directly shared
+            # The get_gspread_client should ideally handle this scope.
+            spreadsheet = client.open(MASTER_SHEET_NAME)
             print(f"Opened master SS by name: '{spreadsheet.title}' (ID: {spreadsheet.id})")
         except gspread.exceptions.SpreadsheetNotFound:
-            print(f"Master SS '{MASTER_SHEET_NAME}' not found by name. Creating...");
+            print(f"Master SS '{MASTER_SHEET_NAME}' not found by name. Creating...")
             try:
-                spreadsheet = client.create(MASTER_SHEET_NAME); print(f"Created master SS '{MASTER_SHEET_NAME}'.")
-                if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, MASTER_SHEET_NAME)
-            except Exception as e_create: print(f"CRITICAL ERROR creating master SS: {e_create}"); traceback.print_exc(); raise
-        except Exception as e_name: print(f"CRITICAL ERROR opening master SS by name '{MASTER_SHEET_NAME}': {e_name}"); traceback.print_exc(); raise
+                spreadsheet = client.create(MASTER_SHEET_NAME)
+                print(f"Created master SS '{MASTER_SHEET_NAME}' (ID: {spreadsheet.id}).")
+                if YOUR_PERSONAL_EMAIL:
+                    share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, MASTER_SHEET_NAME)
+            except Exception as e_create:
+                print(f"CRITICAL ERROR creating master SS: {e_create}"); traceback.print_exc(); raise
+        except Exception as e_name: 
+            print(f"CRITICAL ERROR opening master SS by name '{MASTER_SHEET_NAME}': {e_name}")
+            traceback.print_exc()
+            raise 
     
-    if not spreadsheet: raise Exception("FATAL: Failed to open or create master spreadsheet.")
+    if not spreadsheet: 
+        raise Exception("FATAL: Failed to open or create master spreadsheet after all attempts.")
 
     clubs_headers=['ClubID','ClubName','Email','PasswordHash']
     fests_headers=['FestID','FestName','ClubID','ClubName','StartTime','EndTime','RegistrationEndTime','Details','Published','Venue','Guests', 'FestImageLink']
-    
-    try: clubs_sheet = spreadsheet.worksheet("Clubs"); print("Found 'Clubs' ws.")
-    except gspread.exceptions.WorksheetNotFound: print("'Clubs' ws not found. Creating..."); clubs_sheet = spreadsheet.add_worksheet(title="Clubs",rows=1, cols=len(clubs_headers)); clubs_sheet.append_row(clubs_headers); clubs_sheet.resize(rows=100); print("'Clubs' ws created.")
-    try:
-        fests_sheet = spreadsheet.worksheet("Fests"); print("Found 'Fests' ws.")
-        current_headers = fests_sheet.row_values(1) if fests_sheet.row_count >= 1 else []
-        if not current_headers: print("Fests sheet empty, appending headers..."); fests_sheet.append_row(fests_headers)
-        elif current_headers != fests_headers:
-            print(f"INFO: Fests headers differ. Current:{current_headers}, Expected:{fests_headers}")
-            if 'FestImageLink' not in current_headers and len(current_headers) == len(fests_headers)-1:
-                try: fests_sheet.update_cell(1, len(fests_headers), 'FestImageLink'); print("Added 'FestImageLink' header.")
-                except Exception as he: print(f"ERROR adding 'FestImageLink' header: {he}.")
-            else: print("WARN: Fests sheet headers need manual review.")
-    except gspread.exceptions.WorksheetNotFound: print("'Fests' ws not found. Creating..."); fests_sheet = spreadsheet.add_worksheet(title="Fests",rows=1,cols=len(fests_headers)); fests_sheet.append_row(fests_headers); fests_sheet.resize(rows=100); print("'Fests' ws created.")
-    except Exception as e: print(f"Error with 'Fests' ws: {e}")
-    return client, spreadsheet, clubs_sheet, fests_sheet
 
+    # Clubs Sheet
+    try: 
+        clubs_sheet = spreadsheet.worksheet("Clubs")
+        print("Found 'Clubs' ws.")
+        # Optional: header check for clubs_sheet if needed
+        current_club_headers = clubs_sheet.row_values(1) if clubs_sheet.row_count >=1 else []
+        if not current_club_headers:
+            clubs_sheet.append_row(clubs_headers)
+            print("Appended headers to empty 'Clubs' sheet.")
+        elif current_club_headers != clubs_headers:
+             print(f"WARN: 'Clubs' sheet headers mismatch! Sheet: {current_club_headers}, Expected: {clubs_headers}")
+    except gspread.exceptions.WorksheetNotFound: 
+        print("'Clubs' ws not found. Creating..."); 
+        clubs_sheet = spreadsheet.add_worksheet(title="Clubs",rows=1, cols=len(clubs_headers)); 
+        clubs_sheet.append_row(clubs_headers); 
+        clubs_sheet.resize(rows=100); print("'Clubs' ws created.")
+    except Exception as e_club:
+        print(f"Error accessing/creating 'Clubs' ws: {e_club}")
+        raise # Or handle more gracefully
+    
+    # Fests Sheet
+    try:
+        fests_sheet = spreadsheet.worksheet("Fests")
+        print("Found 'Fests' ws.")
+        current_headers = fests_sheet.row_values(1) if fests_sheet.row_count >= 1 else []
+        
+        expected_num_cols_fests = len(fests_headers)
+        current_num_cols_in_fests_sheet = fests_sheet.col_count
+
+        if not current_headers:
+            print("Fests sheet empty/headerless, ensuring columns and appending expected headers...")
+            if current_num_cols_in_fests_sheet < expected_num_cols_fests:
+                cols_to_add = expected_num_cols_fests - current_num_cols_in_fests_sheet
+                fests_sheet.add_cols(cols_to_add)
+                print(f"Added {cols_to_add} columns to Fests sheet.")
+            # Clear if rows exist but no valid header (be cautious with existing data)
+            # if fests_sheet.row_count > 0 and fests_sheet.get_all_values(): fests_sheet.clear() 
+            fests_sheet.append_row(fests_headers) # Append headers to the first row
+            print("Appended new headers to Fests sheet.")
+        elif current_headers != fests_headers:
+            print(f"INFO: 'Fests' sheet headers differ. Current:{current_headers}, Expected:{fests_headers}")
+            # Attempt to add FestImageLink if it's the only thing missing and at the end
+            if 'FestImageLink' not in current_headers and current_headers == fests_headers[:-1]:
+                print("Attempting to add 'FestImageLink' header...")
+                if current_num_cols_in_fests_sheet < expected_num_cols_fests:
+                    fests_sheet.add_cols(1) # Add one column for FestImageLink
+                    print("Added 1 column for FestImageLink.")
+                try:
+                    # The new column for FestImageLink should be len(current_headers) + 1
+                    # which is also len(fests_headers)
+                    col_to_update_festimagelink = len(fests_headers)
+                    fests_sheet.update_cell(1, col_to_update_festimagelink, 'FestImageLink')
+                    print(f"'FestImageLink' header added/updated in column {col_to_update_festimagelink}")
+                except Exception as he:
+                    print(f"ERROR adding/updating 'FestImageLink' header: {he}. Manual check advised.")
+            else:
+                print("WARN: Fests sheet headers differ in other ways or FestImageLink is not simply the last missing. Manual review needed.")
+        else: # Headers are correct
+            print("Fests sheet headers are correct.")
+            # Ensure enough columns exist even if headers are correct (e.g., sheet was manually shrunk)
+            if current_num_cols_in_fests_sheet < expected_num_cols_fests:
+                cols_to_add = expected_num_cols_fests - current_num_cols_in_fests_sheet
+                fests_sheet.add_cols(cols_to_add)
+                print(f"Ensured Fests sheet has enough columns by adding {cols_to_add}.")
+
+    except gspread.exceptions.WorksheetNotFound:
+        print("'Fests' ws not found. Creating with all headers...");
+        fests_sheet = spreadsheet.add_worksheet(title="Fests",rows=1,cols=len(fests_headers));
+        fests_sheet.append_row(fests_headers);
+        fests_sheet.resize(rows=100); print("'Fests' ws created.")
+    except Exception as e_fests:
+        print(f"Error access/updating 'Fests' ws: {e_fests}")
+        raise # Or handle
+        
+    return client, spreadsheet, clubs_sheet, fests_sheet
 def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title): # Assumed correct
     if not email_address or "@" not in email_address: print(f"Skipping sharing '{sheet_title}': Invalid email '{email_address}'."); return False
     if not hasattr(spreadsheet, 'list_permissions') or not hasattr(spreadsheet, 'share'): print(f"WARNING: Invalid SS object for sharing '{sheet_title}'."); return False
@@ -270,45 +358,106 @@ def club_logout(): session.clear(); flash("Logged out.", "info"); return redirec
 
 @app.route('/club/create_fest', methods=['GET', 'POST'])
 def create_fest():
-    if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
+    if 'club_id' not in session:
+        flash("Login required.", "warning")
+        return redirect(url_for('club_login'))
+    
+    # Initialize form_data_to_pass for GET requests too, to avoid template errors if it expects it
     form_data_to_pass = request.form.to_dict() if request.method == 'POST' else {}
+
     if request.method == 'POST':
         fest_name = request.form.get('fest_name', '').strip()
-        start_time_str, end_time_str, reg_end_time_str = request.form.get('start_time', ''), request.form.get('end_time', ''), request.form.get('registration_end_time', '')
-        fest_details, fest_venue, fest_guests = request.form.get('fest_details', '').strip(), request.form.get('fest_venue', '').strip(), request.form.get('fest_guests', '').strip()
+        
+        # Assign each variable explicitly from the form
+        start_time_str = request.form.get('start_time', '')
+        end_time_str = request.form.get('end_time', '')
+        registration_end_time_str = request.form.get('registration_end_time', '') # Correctly defined
+        
+        fest_details = request.form.get('fest_details', '').strip()
+        fest_venue = request.form.get('fest_venue', '').strip()
+        fest_guests = request.form.get('fest_guests', '').strip()
         is_published = 'yes' if request.form.get('publish_fest') == 'yes' else 'no'
-        fest_image_link = ""
+        fest_image_link = "" # Initialize
 
+        # Image Upload Handling
         if 'fest_image' in request.files:
             file = request.files['fest_image']
             if file and file.filename != '' and allowed_file(file.filename):
-                filename = secure_filename(file.filename); unique_filename = f"{uuid.uuid4().hex}_{filename}"
-                file_stream = BytesIO(); file.save(file_stream); file_stream.seek(0)
-                if not FEST_IMAGES_DRIVE_FOLDER_ID: flash("Image upload server config error: Drive Folder ID not set.", "danger"); print("ERROR: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set.")
+                filename = secure_filename(file.filename)
+                unique_filename = f"{uuid.uuid4().hex}_{filename}"
+                file_stream = BytesIO()
+                file.save(file_stream)
+                file_stream.seek(0)
+                if not FEST_IMAGES_DRIVE_FOLDER_ID:
+                    flash("Image upload server config error: Drive Folder ID not set.", "danger")
+                    print("ERROR: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not set for image upload.")
                 else:
                     uploaded_url = upload_to_drive(file_stream, unique_filename, FEST_IMAGES_DRIVE_FOLDER_ID)
-                    if uploaded_url: fest_image_link = uploaded_url
-                    else: flash("Failed to upload fest image. Please ensure Drive API is enabled and folder is shared.", "warning")
-            elif file and file.filename != '' and not allowed_file(file.filename): flash(f"Invalid image type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}", "warning")
+                    if uploaded_url:
+                        fest_image_link = uploaded_url
+                        print(f"Image uploaded to Drive, link: {fest_image_link}")
+                    else:
+                        flash("Failed to upload fest image. Please ensure Drive API is enabled, folder is shared correctly, and service account has permissions.", "warning")
+            elif file and file.filename != '' and not allowed_file(file.filename):
+                flash(f"Invalid image file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}", "warning")
 
-        required = {'Fest Name': fest_name, 'Start Time': start_time_str, 'End Time': end_time_str, 'Registration Deadline': reg_end_time_str, 'Details': fest_details}
+        # Validation of required fields
+        required = {
+            'Fest Name': fest_name, 
+            'Start Time': start_time_str, 
+            'End Time': end_time_str, 
+            'Registration Deadline': registration_end_time_str, # Now this variable is defined
+            'Details': fest_details
+        }
         missing = [name for name, val in required.items() if not val]
-        if missing: flash(f"Missing: {', '.join(missing)}", "danger"); return render_template('create_fest.html',form_data=form_data_to_pass)
+        if missing:
+            flash(f"Missing required fields: {', '.join(missing)}", "danger")
+            return render_template('create_fest.html', form_data=form_data_to_pass)
+
+        # Date/Time Parsing and Validation
         try:
-             start_dt, end_dt, reg_end_dt = parse_datetime(start_time_str), parse_datetime(end_time_str), parse_datetime(registration_end_time_str)
-             if not all([start_dt, end_dt, reg_end_dt]): flash("Invalid date/time format.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
-             if not (start_dt < end_dt and reg_end_dt <= start_dt): flash("Invalid times.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
-        except ValueError: flash("Invalid time format.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
+            start_dt = parse_datetime(start_time_str)
+            end_dt = parse_datetime(end_time_str)
+            reg_end_dt = parse_datetime(registration_end_time_str) # Now this variable is defined
+            if not all([start_dt, end_dt, reg_end_dt]):
+                flash("Invalid date/time format. Please use the picker or YYYY-MM-DDTHH:MM.", "danger")
+                return render_template('create_fest.html', form_data=form_data_to_pass)
+            if not (start_dt < end_dt and reg_end_dt <= start_dt):
+                flash("Time validation error: Start time must be before end time, and registration must end before or at the start time.", "danger")
+                return render_template('create_fest.html', form_data=form_data_to_pass)
+        except ValueError: # Should be caught by parse_datetime returning None, but as a fallback
+            flash("Invalid date/time format submitted.", "danger")
+            return render_template('create_fest.html', form_data=form_data_to_pass)
+
+        # Save to Google Sheet
         try:
-            client,_,_,master_fests_sheet=get_master_sheet_tabs(); fest_id=generate_unique_id();
-            new_fest_row=[ fest_id, fest_name, session['club_id'], session.get('club_name','N/A'), start_dt.strftime(DATETIME_SHEET_FORMAT), end_dt.strftime(DATETIME_SHEET_FORMAT), reg_end_dt.strftime(DATETIME_SHEET_FORMAT), fest_details, is_published, fest_venue, fest_guests, fest_image_link ];
-            master_fests_sheet.append_row(new_fest_row); print(f"CreateFest: Appended ID:{fest_id}, ImgLink:'{fest_image_link}'");
-            safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_name)).strip() or "fest_event";
-            safe_sheet_title=f"{safe_base[:80]}_{fest_id}"; event_headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
-            get_or_create_worksheet(client, safe_sheet_title, "Registrations", event_headers);
-            flash(f"Fest '{fest_name}' created!", "success"); return redirect(url_for('club_dashboard'));
-        except Exception as e: print(f"ERROR: Create Fest write: {e}"); traceback.print_exc(); flash("DB write error.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
-    return render_template('create_fest.html', form_data={})
+            client, _, _, master_fests_sheet = get_master_sheet_tabs()
+            fest_id = generate_unique_id()
+            new_fest_row = [
+                fest_id, fest_name, session['club_id'], session.get('club_name', 'N/A'),
+                start_dt.strftime(DATETIME_SHEET_FORMAT),
+                end_dt.strftime(DATETIME_SHEET_FORMAT),
+                reg_end_dt.strftime(DATETIME_SHEET_FORMAT),
+                fest_details, is_published, fest_venue, fest_guests,
+                fest_image_link  # Added image link
+            ]
+            master_fests_sheet.append_row(new_fest_row)
+            print(f"CreateFest: Appended FestID:{fest_id} with image link: '{fest_image_link}'")
+            
+            safe_base = "".join(c if c.isalnum() or c in [' ', '_', '-'] else "" for c in str(fest_name)).strip() or "fest_event"
+            safe_sheet_title = f"{safe_base[:80]}_{fest_id}"
+            event_headers = ['UniqueID', 'Name', 'Email', 'Mobile', 'College', 'Present', 'Timestamp']
+            get_or_create_worksheet(client, safe_sheet_title, "Registrations", event_headers)
+            
+            flash(f"Fest '{fest_name}' created successfully!", "success")
+            return redirect(url_for('club_dashboard'))
+        except Exception as e:
+            print(f"ERROR: Create Fest database write operation: {e}")
+            traceback.print_exc()
+            flash("Database write error during fest creation. Please try again.", "danger")
+            return render_template('create_fest.html', form_data=form_data_to_pass)
+            
+    return render_template('create_fest.html', form_data=form_data_to_pass) # Pass for GET too
 
 @app.route('/club/dashboard')
 def club_dashboard():
