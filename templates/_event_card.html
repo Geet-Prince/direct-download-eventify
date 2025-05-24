@@ -1,19 +1,14 @@
-<div class="card event-card mb-3"> {# Assuming Bootstrap card structure, adjust classes as needed #}
-    {# --- ADDED IMAGE DISPLAY BLOCK --- #}
+<div class="card event-card mb-3">
     {% if fest.FestImageLink and fest.FestImageLink != "" %}
-        <img src="{{ fest.FestImageLink }}" class="card-img-top fest-card-image" alt="{{ fest.FestName }} Poster" style="width:100%; height:200px; object-fit:cover;">
+        {# fest.FestImageLink should now store ONLY the Google Drive File ID #}
+        {# The url_for will generate a link like /fest_image_proxy/YOUR_FILE_ID #}
+        <img src="{{ url_for('fest_image_proxy', file_id=fest.FestImageLink) }}" class="card-img-top fest-card-image" alt="{{ fest.FestName }} Poster" style="width:100%; height:200px; object-fit:cover;">
     {% else %}
-        {# Optional: Default placeholder image in your static/img folder #}
-        {# Ensure you have this image or remove this else block / adjust path #}
         <img src="{{ url_for('static', filename='img/default_event_placeholder.png') }}" class="card-img-top fest-card-image" alt="Event Placeholder" style="width:100%; height:200px; object-fit:contain; background-color:#f0f0f0;">
     {% endif %}
-    {# --- END ADDED IMAGE DISPLAY BLOCK --- #}
 
-    {# Card header is often part of card-body or a separate div above card-img-top #}
-    {# If you want the title above the image, move this block up #}
-    {# If you want it below the image but styled as a header within the body: #}
     <div class="card-body">
-        <h5 class="card-title">{{ fest.FestName | default('Unnamed Event') }}</h5> {# Changed h3 to h5 for typical card semantics #}
+        <h5 class="card-title">{{ fest.FestName | default('Unnamed Event') }}</h5>
         <p class="card-text">
             <small class="text-muted">
                 <strong>Starts:</strong> {{ (fest.StartTime | replace('T', ' ')) if fest.StartTime else 'N/A' }}<br>
@@ -28,7 +23,7 @@
             {{ fest.Details | truncate(100, True, '...') if fest.Details else 'No details provided.' }}
         </p>
     </div>
-    <div class="card-footer bg-light"> {# Added bg-light for a common card footer style #}
+    <div class="card-footer bg-light">
         <a href="{{ url_for('event_detail', fest_id_param=fest.FestID) }}" class="btn btn-primary btn-sm btn-block">View Details & Join</a>
     </div>
 </div>
