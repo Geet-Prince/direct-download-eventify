@@ -127,7 +127,7 @@ def get_master_sheet_tabs():
     client = get_gspread_client(); spreadsheet = None
     if MASTER_SHEET_ID:
         try:
-            print(f"Opening master SS by ID: '{MASTER_SHEET_ID}'"); spreadsheet = client.open_by_id(MASTER_SHEET_ID)
+            print(f"Opening master SS by ID: '{MASTER_SHEET_ID}'"); spreadsheet = client.open_by_key(MASTER_SHEET_ID)
             print(f"Opened master SS: '{spreadsheet.title}' (ID: {spreadsheet.id})")
         except Exception as e_id: print(f"ERROR opening master SS by ID '{MASTER_SHEET_ID}': {e_id}"); spreadsheet = None
     
