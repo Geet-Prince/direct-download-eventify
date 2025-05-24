@@ -8,7 +8,7 @@ from operator import itemgetter
 import os
 import traceback
 import uuid
-# import json # Not needed when using environment variables for credentials
+# import json # Not needed for env var auth
 
 # Third-party library imports
 from flask import (
@@ -22,7 +22,6 @@ import pandas as pd
 import qrcode
 from werkzeug.utils import secure_filename
 
-# For Google Drive API
 from google.oauth2.service_account import Credentials as GoogleAuthServiceAccountCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -41,8 +40,8 @@ if not app.secret_key:
 
 # --- Google Setup ---
 SCOPE_SHEETS = ['https://www.googleapis.com/auth/spreadsheets']
-SCOPE_DRIVE = ['https://www.googleapis.com/auth/drive']
-SCOPE_GSPREAD_CLIENT_FALLBACK = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
+SCOPE_DRIVE = ['https://www.googleapis.com/auth/drive'] # For dedicated Drive service (uploads)
+SCOPE_GSPREAD_CLIENT_DEFAULT = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'] # For gspread client
 
 MASTER_SHEET_NAME = os.environ.get("MASTER_SHEET_NAME", 'event management')
 MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID")
@@ -55,7 +54,7 @@ DATETIME_DISPLAY_FORMAT = '%Y-%m-%d %H:%M'
 DATETIME_INPUT_FORMATS = [ DATETIME_SHEET_FORMAT, DATETIME_DISPLAY_FORMAT, '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S' ]
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
-# --- Global Variables for Google Services (to initialize once per worker) ---
+# --- Global Variables for Google Services ---
 gspread_client_global = None
 drive_service_global = None
 master_spreadsheet_obj_global = None
@@ -85,10 +84,10 @@ def _initialize_gspread_client_internal():
     print("Initializing gspread client from environment variables (one-time per worker)...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        current_scope_for_gspread = SCOPE_SHEETS if MASTER_SHEET_ID else SCOPE_GSPREAD_CLIENT_FALLBACK
-        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, current_scope_for_gspread)
+        # Use combined scope for gspread client as it needs to open/create individual sheets (Drive files)
+        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE_GSPREAD_CLIENT_DEFAULT)
         gspread_client_global = gspread.authorize(creds)
-        print(f"gspread client initialized successfully with scope: {current_scope_for_gspread}")
+        print(f"gspread client initialized successfully with scope: {SCOPE_GSPREAD_CLIENT_DEFAULT}")
         return gspread_client_global
     except Exception as e: print(f"CRITICAL ERROR initializing gspread client: {e}"); traceback.print_exc(); raise
 
@@ -113,7 +112,7 @@ def _initialize_master_sheets_internal():
         return get_gspread_client_cached(), master_spreadsheet_obj_global, clubs_sheet_obj_global, fests_sheet_obj_global
 
     print("Initializing master sheet objects (one-time per worker)...")
-    client = get_gspread_client_cached()
+    client = get_gspread_client_cached() # This client now has Sheets + Drive.file scopes
     spreadsheet = None
     if MASTER_SHEET_ID:
         try:
@@ -147,8 +146,7 @@ def _initialize_master_sheets_internal():
     except gspread.exceptions.WorksheetNotFound: fests_sheet_obj_global = master_spreadsheet_obj_global.add_worksheet(title="Fests",rows=1,cols=len(fests_headers)); fests_sheet_obj_global.append_row(fests_headers); fests_sheet_obj_global.resize(rows=100)
     
     current_fests_headers = fests_sheet_obj_global.row_values(1) if fests_sheet_obj_global.row_count >= 1 else []
-    expected_num_cols_fests = len(fests_headers)
-    current_num_cols_in_fests_sheet = fests_sheet_obj_global.col_count
+    expected_num_cols_fests = len(fests_headers); current_num_cols_in_fests_sheet = fests_sheet_obj_global.col_count
     if not current_fests_headers:
         if current_num_cols_in_fests_sheet < expected_num_cols_fests: fests_sheet_obj_global.add_cols(expected_num_cols_fests - current_num_cols_in_fests_sheet)
         if fests_sheet_obj_global.row_count > 0 and fests_sheet_obj_global.get_all_values(): fests_sheet_obj_global.clear()
@@ -165,14 +163,12 @@ def _initialize_master_sheets_internal():
 def get_sheet_objects_cached(): return _initialize_master_sheets_internal()
 
 def get_all_fests_cached():
-    global _cached_fests_data_all, _cache_fests_timestamp_all
-    now = datetime.now()
+    global _cached_fests_data_all, _cache_fests_timestamp_all; now = datetime.now()
     if _cached_fests_data_all and _cache_fests_timestamp_all and (now - _cache_fests_timestamp_all < CACHE_FESTS_DURATION):
         print("Returning cached fests data."); return _cached_fests_data_all
-    print("Fetching fresh fests data from sheet...")
-    _, _, _, fests_sheet = get_sheet_objects_cached()
+    print("Fetching fresh fests data from sheet..."); _, _, _, fests_sheet = get_sheet_objects_cached()
     try: _cached_fests_data_all = fests_sheet.get_all_records(); _cache_fests_timestamp_all = now
-    except Exception as e: print(f"ERROR fetching all fests records: {e}. Returning last known cache or empty list."); return _cached_fests_data_all if _cached_fests_data_all is not None else []
+    except Exception as e: print(f"ERROR fetching all fests: {e}. Returning last cache or empty."); return _cached_fests_data_all or []
     return _cached_fests_data_all
 
 def upload_to_drive(file_stream, filename, target_folder_id):
@@ -188,7 +184,7 @@ def upload_to_drive(file_stream, filename, target_folder_id):
         return f"https://drive.google.com/uc?export=view&id={file_id}"
     except Exception as e: print(f"ERROR uploading '{filename}' to Drive: {e}"); traceback.print_exc(); return None
 
-def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
+def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title): # Assumed correct
     if not email_address or "@" not in email_address: print(f"Skipping sharing '{sheet_title}': Invalid email '{email_address}'."); return False
     if not hasattr(spreadsheet, 'list_permissions') or not hasattr(spreadsheet, 'share'): print(f"WARNING: Invalid SS object for sharing '{sheet_title}'."); return False
     try:
@@ -201,27 +197,29 @@ def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
         print(f"Sharing ensured for '{sheet_title}' with {email_address}."); return True
     except Exception as share_e: print(f"\nWARN: Share error for '{sheet_title}' with {email_address}: {share_e}\n"); return False
 
-def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_title, headers=None):
+def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_title, headers=None): # Using corrected version
     spreadsheet_obj = None; worksheet = None; headers = headers or []; ws_created_now = False
     try:
         if isinstance(spreadsheet_title_or_obj, gspread.Spreadsheet): spreadsheet_obj = spreadsheet_title_or_obj
-        else: spreadsheet_obj = client_param.open(spreadsheet_title_or_obj)
+        else: spreadsheet_obj = client_param.open(spreadsheet_title_or_obj) # This now uses client with drive.file scope
     except gspread.exceptions.SpreadsheetNotFound:
-        spreadsheet_obj = client_param.create(spreadsheet_title_or_obj)
+        print(f"Individual SS '{spreadsheet_title_or_obj}' not found. Creating..."); spreadsheet_obj = client_param.create(spreadsheet_title_or_obj) # Needs drive.file scope
+        print(f"Created SS '{spreadsheet_obj.title}'.");
         if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet_obj, YOUR_PERSONAL_EMAIL, spreadsheet_obj.title)
-    except Exception as e: print(f"ERROR getting SS '{spreadsheet_title_or_obj}': {e}"); raise
-    if not spreadsheet_obj: raise Exception(f"Failed SS handle for '{spreadsheet_title_or_obj}'.")
+    except Exception as e: print(f"ERROR getting SS '{spreadsheet_title_or_obj}': {e}"); traceback.print_exc(); raise # Add traceback
+    if not spreadsheet_obj: raise Exception(f"Failed to get spreadsheet handle for '{spreadsheet_title_or_obj}'.")
     try: worksheet = spreadsheet_obj.worksheet(worksheet_title)
     except gspread.exceptions.WorksheetNotFound:
         ws_cols = len(headers) if headers else 10; worksheet = spreadsheet_obj.add_worksheet(title=worksheet_title, rows=1, cols=ws_cols); ws_created_now = True
-    except Exception as e: print(f"ERROR getting WS '{worksheet_title}': {e}"); raise
-    if not worksheet: raise Exception(f"Failed WS handle for '{worksheet_title}'.")
+    except Exception as e: print(f"ERROR getting WS '{worksheet_title}': {e}"); traceback.print_exc(); raise # Add traceback
+    if not worksheet: raise Exception(f"Failed to get worksheet handle for '{worksheet_title}'.")
     try:
         first_row = worksheet.row_values(1) if not ws_created_now and worksheet.row_count >= 1 else []
         if headers and (ws_created_now or not first_row): worksheet.append_row(headers); worksheet.resize(rows=500);
-        elif headers and first_row != headers: print(f"WARN: Headers mismatch WS '{worksheet_title}'! Sheet:{first_row}, Expected:{headers}")
-    except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}")
+        elif headers and first_row != headers: print(f"WARN: Headers mismatch WS '{worksheet_title}'! Sheet: {first_row}, Expected: {headers}")
+    except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}"); traceback.print_exc() # Add traceback
     return worksheet
+
 
 def generate_unique_id(): return str(uuid.uuid4().hex)[:10]
 def hash_password(password): print(f"DEBUG HASH: Placeholder for '{password}'"); return password
@@ -239,9 +237,12 @@ def inject_now(): return {'now': datetime.now()}
 @app.route('/')
 def index(): return render_template('index.html')
 
-# === Club Routes ===
+# === Routes (Club, Fest Management, Attendee, Security) ===
+# (All routes will now use get_sheet_objects_cached() or get_all_fests_cached())
+
 @app.route('/club/register', methods=['GET', 'POST'])
 def club_register():
+    # ... (Logic for club registration) ...
     if request.method == 'POST':
         club_name=request.form.get('club_name','').strip();email=request.form.get('email','').strip().lower();password=request.form.get('password','');confirm_password=request.form.get('confirm_password','')
         if not all([club_name,email,password,confirm_password]): flash("All fields required.", "danger"); return render_template('club_register.html')
@@ -257,8 +258,10 @@ def club_register():
         except Exception as e: print(f"ERROR: ClubReg Op: {e}"); traceback.print_exc(); flash("Registration error.", "danger")
     return render_template('club_register.html')
 
+
 @app.route('/club/login', methods=['GET', 'POST'])
 def club_login():
+    # ... (Logic for club login, using get_sheet_objects_cached) ...
     if request.method == 'POST':
         email_form = request.form.get('email','').strip().lower(); password_form = request.form.get('password','')
         print(f"DEBUG LOGIN: Attempt. Email: '{email_form}', Pass: '{password_form}'")
@@ -318,10 +321,7 @@ def create_fest():
             g_client, _, _, master_fests_sheet = get_sheet_objects_cached(); fest_id=generate_unique_id();
             new_fest_row=[ fest_id, fest_name, session['club_id'], session.get('club_name','N/A'), start_dt.strftime(DATETIME_SHEET_FORMAT), end_dt.strftime(DATETIME_SHEET_FORMAT), reg_end_dt.strftime(DATETIME_SHEET_FORMAT), fest_details, is_published, fest_venue, fest_guests, fest_image_link ];
             master_fests_sheet.append_row(new_fest_row); print(f"CreateFest: Appended ID:{fest_id}, ImgLink:'{fest_image_link}'");
-            # Invalidate fest cache after adding a new fest
-            global _cached_fests_data_all, _cache_fests_timestamp_all
-            _cached_fests_data_all = None
-            _cache_fests_timestamp_all = None
+            global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None; print("INFO: All fests cache invalidated.")
             safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_name)).strip() or "fest_event";
             safe_sheet_title=f"{safe_base[:80]}_{fest_id}"; event_headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
             get_or_create_worksheet(g_client, safe_sheet_title, "Registrations", event_headers);
@@ -378,26 +378,20 @@ def edit_fest(fest_id):
 def end_fest(fest_id):
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
-        _, _, _, fests_sheet = get_sheet_objects_cached() # Get the sheet object
-        all_fests_data = get_all_fests_cached() # Could also get from here if it's fresh enough
+        _, _, _, fests_sheet = get_sheet_objects_cached()
+        all_fests_data = get_all_fests_cached()
         fest_info = next((f for f in all_fests_data if str(f.get('FestID', '')) == fest_id), None)
         if not fest_info: flash("Fest to end not found.", "danger"); return redirect(url_for('club_dashboard'))
         if str(fest_info.get('ClubID', '')) != session['club_id']: flash("Permission denied.", "danger"); return redirect(url_for('club_dashboard'))
-        
-        # Find row in sheet to update. This still involves an API call (find).
-        # For high-frequency updates, a different strategy might be needed, but for "end fest", this is ok.
-        fest_cell = fests_sheet.find(fest_id, in_column=1) # Find by FestID
+        fest_cell = fests_sheet.find(fest_id, in_column=1)
         if not fest_cell: flash("Fest to end not found in sheet (cell).", "danger"); return redirect(url_for('club_dashboard'))
-        
         fest_row_index = fest_cell.row; header_row = fests_sheet.row_values(1)
         end_time_col_idx = header_row.index('EndTime') + 1; published_col_idx = header_row.index('Published') + 1
         now_str = datetime.now().strftime(DATETIME_SHEET_FORMAT)
         updates = [{'range': gspread.utils.rowcol_to_a1(fest_row_index, end_time_col_idx), 'values': [[now_str]]},
                    {'range': gspread.utils.rowcol_to_a1(fest_row_index, published_col_idx), 'values': [['no']]}]
         fests_sheet.batch_update(updates)
-        # Invalidate cache as fest data changed
-        global _cached_fests_data_all, _cache_fests_timestamp_all
-        _cached_fests_data_all = None; _cache_fests_timestamp_all = None
+        global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None
         flash(f"Fest '{fest_info.get('FestName', fest_id)}' ended & unpublished.", "success")
     except Exception as e: print(f"ERROR ending fest {fest_id}: {e}"); traceback.print_exc(); flash("Error ending event.", "danger")
     return redirect(url_for('club_dashboard'))
@@ -407,23 +401,18 @@ def delete_fest(fest_id):
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     redirect_url = request.referrer or url_for('club_dashboard')
     try:
-        g_client, _, _, fests_sheet = get_sheet_objects_cached() # Get client and fests_sheet
+        _, _, _, fests_sheet = get_sheet_objects_cached()
         all_fests_data = get_all_fests_cached()
         fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id), None)
         if not fest_info: flash("Fest to delete not found.", "danger"); return redirect(redirect_url)
         if str(fest_info.get('ClubID',''))!=session['club_id']: flash("Permission denied.", "danger"); return redirect(redirect_url)
-        
         fest_name_to_delete = fest_info.get('FestName', f"Fest (ID: {fest_id})")
         image_link_to_delete = fest_info.get('FestImageLink')
-
         fest_cell = fests_sheet.find(fest_id, in_column=1)
         if not fest_cell: flash("Fest to delete not found in sheet (cell).", "danger"); return redirect(redirect_url)
         fests_sheet.delete_rows(fest_cell.row)
         print(f"Fest row for '{fest_name_to_delete}' deleted from sheet.")
-        # Invalidate cache
-        global _cached_fests_data_all, _cache_fests_timestamp_all
-        _cached_fests_data_all = None; _cache_fests_timestamp_all = None
-
+        global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None
         if image_link_to_delete and 'drive.google.com' in image_link_to_delete and 'id=' in image_link_to_delete:
             try:
                 drive_file_id = image_link_to_delete.split('id=')[-1].split('&')[0]
@@ -432,7 +421,6 @@ def delete_fest(fest_id):
                     drive_service.files().delete(fileId=drive_file_id).execute()
                     print(f"Fest image '{drive_file_id}' deleted from Google Drive.")
             except Exception as drive_del_e: print(f"WARN: Could not delete fest image from Drive: {drive_del_e}")
-        
         flash(f"Fest '{fest_name_to_delete}' deleted.", "success")
     except Exception as e: print(f"ERROR deleting fest {fest_id}: {e}"); traceback.print_exc(); flash("Error deleting event.", "danger")
     return redirect(redirect_url)
@@ -441,7 +429,7 @@ def delete_fest(fest_id):
 def fest_stats(fest_id):
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
-        g_client, _, _, _ = get_sheet_objects_cached() # Get g_client
+        g_client, _, _, _ = get_sheet_objects_cached()
         all_fests_data = get_all_fests_cached()
         fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None)
         if not fest_info: flash("Event not found.", "danger"); return redirect(url_for('club_dashboard'))
@@ -476,8 +464,7 @@ def fest_stats(fest_id):
 def export_excel(fest_id):
     if 'club_id' not in session: flash("Login required for export.", "warning"); return jsonify({"error": "Unauthorized"}), 401
     try:
-        g_client, _, _, _ = get_sheet_objects_cached()
-        all_fests_data = get_all_fests_cached()
+        g_client, _, _, _ = get_sheet_objects_cached(); all_fests_data = get_all_fests_cached()
         fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None)
         if not fest_info: flash("Event not found.", "danger"); return redirect(url_for('club_dashboard'))
         if str(fest_info.get('ClubID','')) != session['club_id']: flash("Unauthorized export.", "danger"); return redirect(url_for('club_dashboard'))
@@ -497,8 +484,7 @@ def export_excel(fest_id):
 def export_pdf(fest_id):
     if 'club_id' not in session: flash("Login required for PDF export.", "warning"); return redirect(url_for('club_login'))
     try:
-        g_client, _, _, _ = get_sheet_objects_cached()
-        all_fests_data = get_all_fests_cached()
+        g_client, _, _, _ = get_sheet_objects_cached(); all_fests_data = get_all_fests_cached()
         fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None)
         if not fest_info: flash("Event not found for PDF.", "danger"); return redirect(url_for('club_dashboard'))
         if str(fest_info.get('ClubID','')) != session['club_id']: flash("Unauthorized PDF export.", "danger"); return redirect(url_for('club_dashboard'))
@@ -509,7 +495,6 @@ def export_pdf(fest_id):
         except gspread.exceptions.SpreadsheetNotFound: flash(f"Reg sheet for '{fest_info.get('FestName')}' not found for PDF.", "warning"); return redirect(url_for('fest_stats', fest_id=fest_id))
         except Exception as e_sheet: print(f"Sheet access error for PDF: {e_sheet}"); flash("Error accessing PDF data.", "danger"); return redirect(url_for('fest_stats', fest_id=fest_id))
         if not registrations_data: flash(f"No data for '{fest_info.get('FestName')}' to PDF.", "info"); return redirect(url_for('fest_stats', fest_id=fest_id))
-
         pdf = FPDF(orientation='L', unit='mm', format='A4'); pdf.add_page(); pdf.set_font("Arial", 'B', size=16)
         pdf.cell(0, 10, txt=f"Event Report: {fest_info.get('FestName','')}", ln=1, align='C'); pdf.set_font("Arial", size=10)
         pdf.cell(0, 7, txt=f"Date: {datetime.now().strftime(DATETIME_DISPLAY_FORMAT)}", ln=1, align='C'); pdf.ln(5)
@@ -563,7 +548,7 @@ def join_event(fest_id_param):
     if not all([name,email,mobile,college]): flash("All fields required.", "danger"); return redirect(url_for('event_detail', fest_id_param=fest_id_param));
     if "@" not in email or "." not in email.split('@')[-1]: flash("Invalid email.", "danger"); return redirect(url_for('event_detail', fest_id_param=fest_id_param));
     try:
-        g_client, _, _, _ = get_sheet_objects_cached() # Get client
+        g_client, _, _, _ = get_sheet_objects_cached()
         all_fests=get_all_fests_cached()
         fest_info=next((f for f in all_fests if str(f.get('FestID',''))==fest_id_param), None);
         if not fest_info: flash("Event not found.", "danger"); return redirect(url_for('live_events'));
@@ -630,7 +615,7 @@ def verify_qr():
         if scanned_fest_id != session.get('security_event_id'): return jsonify({'status':'error', 'message':'QR for wrong event.'}), 400
     except Exception as e: print(f"ERROR parsing QR: {e}"); return jsonify({'status':'error', 'message':'Invalid QR format.'}), 400
     try:
-        g_client, _, _, _ = get_sheet_objects_cached() # Get client
+        g_client, _, _, _ = get_sheet_objects_cached()
         sheet_title = session['security_event_sheet_title']; headers_qr = ['UniqueID','Name','Email','Mobile','College','Present','Timestamp']
         reg_sheet = get_or_create_worksheet(g_client, sheet_title, "Registrations", headers_qr);
         cell = reg_sheet.find(scanned_unique_id, in_column=1)
@@ -648,7 +633,7 @@ def verify_qr():
 def initialize_application_on_startup():
     print("\n----- Initializing Application on Startup -----")
     try:
-        get_sheet_objects_cached() # This will trigger the one-time load if not already done
+        get_sheet_objects_cached()
         print("Initial check/load of Google services complete.")
     except ValueError as ve: 
         print(f"🔴🔴🔴 FATAL STARTUP ERROR (Credentials): {ve}")
