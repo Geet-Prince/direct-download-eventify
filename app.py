@@ -34,22 +34,21 @@ if not app.secret_key:
     app.secret_key = "temp_dev_secret_key_for_flask_reloader_only_SET_IN_ENV"
 
 # --- Mail Setup ---
-app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com') # e.g., 'smtp.gmail.com' for Gmail
-app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587)) # 587 for TLS, 465 for SSL
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
 app.config['MAIL_USE_SSL'] = os.environ.get('MAIL_USE_SSL', 'false').lower() == 'true'
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME') # Your email address
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD') # Your email password or App Password for Gmail
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME']) # Can be same as MAIL_USERNAME or a 'noreply' address
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
 
-mail = Mail(app) # Initialize Mail extension
+mail = Mail(app)
 # --- End Mail Setup ---
 
 # --- Google Setup ---
 SCOPE_GSPREAD_CLIENT_DEFAULT = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
-
 MASTER_SHEET_NAME = os.environ.get("MASTER_SHEET_NAME", 'event management')
-MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID") # Recommended for robustness
+MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID")
 YOUR_PERSONAL_EMAIL = os.environ.get("YOUR_PERSONAL_SHARE_EMAIL")
 
 # --- Constants ---
@@ -68,7 +67,7 @@ _cache_fests_timestamp_all = None
 CACHE_FESTS_DURATION = timedelta(minutes=5)
 
 # --- Helper Functions ---
-def get_google_creds_dict_from_env(): # For gspread (oauth2client)
+def get_google_creds_dict_from_env():
     expected_keys_map = { "type": "GOOGLE_TYPE", "project_id": "GOOGLE_PROJECT_ID", "private_key_id": "GOOGLE_PRIVATE_KEY_ID", "private_key": "GOOGLE_PRIVATE_KEY", "client_email": "GOOGLE_CLIENT_EMAIL", "client_id": "GOOGLE_CLIENT_ID", "auth_uri": "GOOGLE_AUTH_URI", "token_uri": "GOOGLE_TOKEN_URI", "auth_provider_x509_cert_url": "GOOGLE_AUTH_PROVIDER_X509_CERT_URL", "client_x509_cert_url": "GOOGLE_CLIENT_X509_CERT_URL" }
     creds_dict = {}
     missing_vars = [env_var for _, env_var in expected_keys_map.items() if not os.environ.get(env_var)]
@@ -119,8 +118,7 @@ def _initialize_master_sheets_internal():
     master_spreadsheet_obj_global = spreadsheet
 
     clubs_headers=['ClubID','ClubName','Email','PasswordHash']
-    # Adjusted fests_headers to match the "Current" from your log, assuming you want to keep FestImageLink
-    fests_headers=['FestID','FestName','ClubID','ClubName','StartTime','EndTime','RegistrationEndTime','Details','Published','Venue','Guests', 'FestImageLink']
+    fests_headers=['FestID','FestName','ClubID','ClubName','StartTime','EndTime','RegistrationEndTime','Details','Published','Venue','Guests', 'FestImageLink'] # Includes FestImageLink
     
     try: clubs_sheet_obj_global = master_spreadsheet_obj_global.worksheet("Clubs")
     except gspread.exceptions.WorksheetNotFound: clubs_sheet_obj_global = master_spreadsheet_obj_global.add_worksheet(title="Clubs",rows=1,cols=len(clubs_headers)); clubs_sheet_obj_global.append_row(clubs_headers); clubs_sheet_obj_global.resize(rows=100)
@@ -145,9 +143,15 @@ def get_all_fests_cached():
     global _cached_fests_data_all, _cache_fests_timestamp_all; now = datetime.now()
     if _cached_fests_data_all and _cache_fests_timestamp_all and (now - _cache_fests_timestamp_all < CACHE_FESTS_DURATION):
         print("Returning cached fests data."); return _cached_fests_data_all
-    print("Fetching fresh fests data from sheet..."); _, _, _, fests_sheet = get_sheet_objects_cached()
-    try: _cached_fests_data_all = fests_sheet.get_all_records(); _cache_fests_timestamp_all = now
-    except Exception as e: print(f"ERROR fetching all fests: {e}. Returning last cache or empty."); return _cached_fests_data_all or []
+    print("Fetching fresh fests data from sheet...");
+    try:
+        _, _, _, fests_sheet = get_sheet_objects_cached()
+        _cached_fests_data_all = fests_sheet.get_all_records()
+        _cache_fests_timestamp_all = now
+    except Exception as e:
+        print(f"ERROR fetching all fests: {e}. Returning last cache or empty list.");
+        traceback.print_exc()
+        return _cached_fests_data_all if _cached_fests_data_all is not None else []
     return _cached_fests_data_all
 
 def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
@@ -187,8 +191,8 @@ def get_or_create_worksheet(client_param, spreadsheet_title_or_obj, worksheet_ti
     return worksheet
 
 def generate_unique_id(): return str(uuid.uuid4().hex)[:10]
-def hash_password(password): print(f"DEBUG HASH: Placeholder for '{password}'"); return password # Replace with a real hashing function
-def verify_password(hashed, provided): print(f"DEBUG VERIFY: Stored:'{hashed}', Prov:'{provided}', Match:{hashed==provided}"); return hashed == provided # Replace with real verification
+def hash_password(password): print(f"DEBUG HASH: Placeholder for '{password}'"); return password
+def verify_password(hashed, provided): print(f"DEBUG VERIFY: Stored:'{hashed}', Prov:'{provided}', Match:{hashed==provided}"); return hashed == provided
 def parse_datetime(dt_str):
     if not dt_str: return None
     for fmt in DATETIME_INPUT_FORMATS:
@@ -256,7 +260,7 @@ def create_fest():
         fest_name = request.form.get('fest_name', '').strip()
         start_time_str, end_time_str, reg_end_time_str = request.form.get('start_time', ''), request.form.get('end_time', ''), request.form.get('registration_end_time', '')
         fest_details, fest_venue, fest_guests = request.form.get('fest_details', '').strip(), request.form.get('fest_venue', '').strip(), request.form.get('fest_guests', '').strip()
-        fest_image_link = request.form.get('fest_image_link', '').strip() # Assuming you add a field for this
+        fest_image_link = request.form.get('fest_image_link', '').strip() # Assuming input field named 'fest_image_link'
         is_published = 'yes' if request.form.get('publish_fest') == 'yes' else 'no'
         
         required = {'Fest Name': fest_name, 'Start Time': start_time_str, 'End Time': end_time_str, 'Registration Deadline': reg_end_time_str, 'Details': fest_details}
@@ -269,7 +273,6 @@ def create_fest():
         except ValueError: flash("Invalid time format.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
         try:
             g_client, _, _, master_fests_sheet = get_sheet_objects_cached(); fest_id=generate_unique_id();
-            # Adjusted new_fest_row to include FestImageLink
             new_fest_row=[ fest_id, fest_name, session['club_id'], session.get('club_name','N/A'), start_dt.strftime(DATETIME_SHEET_FORMAT), end_dt.strftime(DATETIME_SHEET_FORMAT), reg_end_dt.strftime(DATETIME_SHEET_FORMAT), fest_details, is_published, fest_venue, fest_guests, fest_image_link ];
             master_fests_sheet.append_row(new_fest_row); print(f"CreateFest: Appended ID:{fest_id}");
             global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None; print("INFO: All fests cache invalidated.")
@@ -322,7 +325,7 @@ def edit_fest(fest_id):
         fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None);
         if not fest_info: flash("Fest not found.", "danger"); return redirect(url_for('club_dashboard'))
         if str(fest_info.get('ClubID','')) != session['club_id']: flash("Permission denied.", "danger"); return redirect(url_for('club_dashboard'))
-        return render_template('edit_options.html', fest=fest_info)
+        return render_template('edit_options.html', fest=fest_info) # Assumes edit_options.html exists
     except Exception as e: print(f"ERROR getting edit options FestID {fest_id}: {e}"); traceback.print_exc(); flash("Error getting event options.", "danger"); return redirect(url_for('club_dashboard'))
 
 @app.route('/club/fest/<fest_id>/end', methods=['POST'])
@@ -330,22 +333,23 @@ def end_fest(fest_id):
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
         _, _, _, fests_sheet = get_sheet_objects_cached()
-        all_fests_data = get_all_fests_cached()
+        all_fests_data = get_all_fests_cached() # Use cached data for info, but modify sheet directly
         fest_info = next((f for f in all_fests_data if str(f.get('FestID', '')) == fest_id), None)
         if not fest_info: flash("Fest to end not found.", "danger"); return redirect(url_for('club_dashboard'))
         if str(fest_info.get('ClubID', '')) != session['club_id']: flash("Permission denied.", "danger"); return redirect(url_for('club_dashboard'))
         
-        fest_cell = fests_sheet.find(fest_id, in_column=1) # FestID is in column 1
+        fest_cell = fests_sheet.find(fest_id, in_column=1)
         if not fest_cell: flash("Fest to end not found in sheet (cell).", "danger"); return redirect(url_for('club_dashboard'))
         
         fest_row_index = fest_cell.row
-        header_row = fests_sheet.row_values(1)
+        header_row = fests_sheet.row_values(1) # Get actual headers
         
         try:
             end_time_col_idx = header_row.index('EndTime') + 1
             published_col_idx = header_row.index('Published') + 1
         except ValueError:
             flash("Sheet structure error: 'EndTime' or 'Published' column not found.", "danger")
+            print(f"Header error in end_fest: Sheet headers are {header_row}")
             return redirect(url_for('club_dashboard'))
 
         now_str = datetime.now().strftime(DATETIME_SHEET_FORMAT)
@@ -353,7 +357,7 @@ def end_fest(fest_id):
                    {'range': gspread.utils.rowcol_to_a1(fest_row_index, published_col_idx), 'values': [['no']]}]
         fests_sheet.batch_update(updates)
         
-        global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None
+        global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None # Invalidate cache
         flash(f"Fest '{fest_info.get('FestName', fest_id)}' ended & unpublished.", "success")
     except Exception as e: print(f"ERROR ending fest {fest_id}: {e}"); traceback.print_exc(); flash("Error ending event.", "danger")
     return redirect(url_for('club_dashboard'))
@@ -364,25 +368,27 @@ def delete_fest(fest_id):
     redirect_url = request.referrer or url_for('club_dashboard')
     try:
         _, _, _, fests_sheet = get_sheet_objects_cached()
-        all_fests_data = get_all_fests_cached()
+        all_fests_data = get_all_fests_cached() # For checking permissions
         fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id), None)
         if not fest_info: flash("Fest to delete not found.", "danger"); return redirect(redirect_url)
         if str(fest_info.get('ClubID',''))!=session['club_id']: flash("Permission denied.", "danger"); return redirect(redirect_url)
         fest_name_to_delete = fest_info.get('FestName', f"Fest (ID: {fest_id})")
         
-        fest_cell = fests_sheet.find(fest_id, in_column=1) # FestID is in column 1
+        fest_cell = fests_sheet.find(fest_id, in_column=1)
         if not fest_cell: flash("Fest to delete not found in sheet (cell).", "danger"); return redirect(redirect_url)
         
         fests_sheet.delete_rows(fest_cell.row)
         print(f"Fest row for '{fest_name_to_delete}' deleted from sheet.")
         
-        global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None
+        global _cached_fests_data_all, _cache_fests_timestamp_all; _cached_fests_data_all = None; _cache_fests_timestamp_all = None # Invalidate cache
         flash(f"Fest '{fest_name_to_delete}' deleted.", "success")
     except Exception as e: print(f"ERROR deleting fest {fest_id}: {e}"); traceback.print_exc(); flash("Error deleting event.", "danger")
     return redirect(redirect_url)
 
 @app.route('/club/fest/<fest_id>/stats')
 def fest_stats(fest_id):
+    # This function remains largely the same as in previous full code versions.
+    # It relies on opening the individual fest registration sheet.
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
         g_client, _, _, _ = get_sheet_objects_cached()
@@ -413,11 +419,13 @@ def fest_stats(fest_id):
             stats['hourly_chart_data'] = {'labels': list(stats['hourly_distribution'].keys()), 'data': list(stats['hourly_distribution'].values())}
         except gspread.exceptions.SpreadsheetNotFound: flash(f"Registration data for '{fest_info.get('FestName')}' not found.", "info")
         except Exception as e: print(f"Error accessing stats data for {sheet_title}: {e}"); traceback.print_exc(); flash("Error loading detailed statistics.", "warning")
-        return render_template('fest_stats.html', fest=fest_info, stats=stats)
+        return render_template('fest_stats.html', fest=fest_info, stats=stats) # Assumes fest_stats.html exists
     except Exception as e: print(f"Error in fest_stats: {e}"); traceback.print_exc(); flash("Error loading statistics.", "danger"); return redirect(url_for('club_dashboard'))
+
 
 @app.route('/club/fest/<fest_id>/export/excel')
 def export_excel(fest_id):
+    # This function remains largely the same as in previous full code versions.
     if 'club_id' not in session: flash("Login required for export.", "warning"); return jsonify({"error": "Unauthorized"}), 401
     try:
         g_client, _, _, _ = get_sheet_objects_cached(); all_fests_data = get_all_fests_cached()
@@ -438,6 +446,7 @@ def export_excel(fest_id):
 
 @app.route('/club/fest/<fest_id>/export/pdf')
 def export_pdf(fest_id):
+    # This function remains largely the same as in previous full code versions.
     if 'club_id' not in session: flash("Login required for PDF export.", "warning"); return redirect(url_for('club_login'))
     try:
         g_client, _, _, _ = get_sheet_objects_cached(); all_fests_data = get_all_fests_cached()
@@ -463,8 +472,7 @@ def export_pdf(fest_id):
         
         current_width_total = sum(col_widths.get(h, 30) for h in headers_pdf)
         page_width = 297 - 20 
-        if current_width_total > page_width:
-             print(f"Warning: PDF content width ({current_width_total}mm) might exceed page width ({page_width}mm).")
+        if current_width_total > page_width: print(f"Warning: PDF content width ({current_width_total}mm) might exceed page width ({page_width}mm).")
 
         for header_key in headers_pdf: pdf.cell(col_widths.get(header_key, 30), 7, display_headers_pdf.get(header_key, header_key), border=1, align='C')
         pdf.ln(); pdf.set_font("Arial", size=8)
@@ -477,8 +485,7 @@ def export_pdf(fest_id):
                     parsed_ts = parse_datetime(val); val = parsed_ts.strftime(DATETIME_DISPLAY_FORMAT) if parsed_ts else (val if val != 'N/A' else '')
                 
                 max_len_heuristic = int(col_widths.get(header_key, 30) / 1.8) 
-                if len(val) > max_len_heuristic:
-                     val = val[:max_len_heuristic-3] + "..."
+                if len(val) > max_len_heuristic: val = val[:max_len_heuristic-3] + "..."
 
                 pdf.cell(col_widths.get(header_key, 30), 6, val, border=1, align='L' if header_key in ['Name', 'Email', 'College'] else 'C')
             pdf.ln()
@@ -498,10 +505,11 @@ def live_events():
         is_published=str(fest.get('Published','')).strip().lower()=='yes'
         reg_end_time = parse_datetime(fest.get('RegistrationEndTime',''))
         start_time = parse_datetime(fest.get('StartTime',''))
-        if is_published and reg_end_time and now < reg_end_time and start_time and now < start_time:
+        # Show if published, reg is open, AND event hasn't started
+        if is_published and reg_end_time and start_time and now < reg_end_time and now < start_time :
             available_fests.append(fest)
     available_fests.sort(key=lambda x: parse_datetime(x.get('StartTime')) or datetime.max)
-    return render_template('live_events.html', fests=available_fests)
+    return render_template('live_events.html', fests=available_fests) # Assumes live_events.html exists
 
 @app.route('/event/<fest_id_param>')
 def event_detail(fest_id_param):
@@ -515,7 +523,7 @@ def event_detail(fest_id_param):
     start_time = parse_datetime(fest_info.get('StartTime',''))
     if is_published and reg_end_time and start_time and datetime.now() < reg_end_time and datetime.now() < start_time : 
         is_open_for_reg=True
-    return render_template('event_detail.html', fest=fest_info, registration_open=is_open_for_reg)
+    return render_template('event_detail.html', fest=fest_info, registration_open=is_open_for_reg) # Assumes event_detail.html exists
 
 @app.route('/event/<fest_id_param>/join', methods=['POST'])
 def join_event(fest_id_param):
@@ -628,7 +636,7 @@ def join_event(fest_id_param):
                     content_type="image/png",
                     data=qr_image_io.read(),
                     disposition="inline",
-                    headers={'Content-ID': f'<{qr_image_cid}>'} # Use dictionary for headers
+                    headers={'Content-ID': f'<{qr_image_cid}>'} 
                 )
                 
                 mail.send(msg)
@@ -639,7 +647,7 @@ def join_event(fest_id_param):
         else:
             print(f"WARN: Mail not configured. Skipping email to {email}.")
 
-        qr_image_io.seek(0) # Rewind for web display
+        qr_image_io.seek(0)
         img_str_for_web = base64.b64encode(qr_image_io.getvalue()).decode()
 
         if email_sent_successfully:
@@ -649,7 +657,7 @@ def join_event(fest_id_param):
         else:
             flash(f"Successfully joined '{fest_name_email}'! Your QR code is shown below. (Email confirmation not sent as mail server is not configured).", "info")
         
-        return render_template('join_success.html', qr_image=img_str_for_web, fest_name=fest_name_email, user_name=name);
+        return render_template('join_success.html', qr_image=img_str_for_web, fest_name=fest_name_email, user_name=name); # Assumes join_success.html exists
 
     except gspread.exceptions.SpreadsheetNotFound: 
         flash("Registration error: Event data sheet missing.", "danger"); 
@@ -660,79 +668,178 @@ def join_event(fest_id_param):
         flash("An unexpected registration error occurred. Please try again.", "danger"); 
         return redirect(url_for('event_detail', fest_id_param=fest_id_param));
 
+# === Security Routes ===
 @app.route('/security/login', methods=['GET', 'POST'])
 def security_login():
     if request.method == 'POST':
-        username = request.form.get('username','').strip().lower(); event_name_password = request.form.get('password','').strip()
-        if not username or not event_name_password: flash("All fields required.", "danger"); return render_template('security_login.html')
+        username = request.form.get('username','').strip().lower()
+        event_name_password = request.form.get('password','').strip() # This is the "FestName"
+        if not username or not event_name_password:
+            flash("All fields required.", "danger")
+            return render_template('security_login.html')
         if username == 'security':
             try:
-                _,_,_,fests_sheet = get_master_sheet_tabs(); all_fests_data=fests_sheet.get_all_records();
-                valid_event = next((f for f in all_fests_data if str(f.get('FestName',''))==event_name_password and str(f.get('Published','')).strip().lower()=='yes'), None);
+                all_fests_data = get_all_fests_cached()
+                if all_fests_data is None: # Handle case where cache might return None on initial error
+                    all_fests_data = [] 
+                
+                print(f"Security Login Attempt: User='{username}', EventPass='{event_name_password}'")
+                # Check all fests for a match
+                # for fest_debug in all_fests_data:
+                #     print(f"Checking against: Name='{fest_debug.get('FestName')}', Published='{fest_debug.get('Published')}'")
+
+                valid_event = next((f for f in all_fests_data if
+                                    str(f.get('FestName','')).strip() == event_name_password and
+                                    str(f.get('Published','')).strip().lower() == 'yes'), None)
+                
                 if valid_event:
-                    session['security_event_name'] = valid_event.get('FestName','N/A'); session['security_event_id'] = valid_event.get('FestID','N/A');
-                    safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(valid_event.get('FestName','Event'))).strip();
-                    if not safe_base: safe_base="fest_event";
-                    session['security_event_sheet_title']=f"{safe_base[:80]}_{valid_event.get('FestID','')}";
-                    flash(f"Security access for: {session['security_event_name']}", "success"); return redirect(url_for('security_scanner'));
-                else: flash("Invalid event password or event inactive.", "danger")
-            except Exception as e: print(f"ERROR: Security login failed: {e}"); traceback.print_exc(); flash("Security login error.", "danger")
-        else: flash("Invalid security username.", "danger")
-    return render_template('security_login.html')
+                    session['security_event_name'] = valid_event.get('FestName','N/A')
+                    session['security_event_id'] = valid_event.get('FestID','N/A')
+                    safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(valid_event.get('FestName','Event'))).strip()
+                    if not safe_base: safe_base="fest_event"
+                    session['security_event_sheet_title']=f"{safe_base[:80]}_{valid_event.get('FestID','')}"
+                    flash(f"Security access for: {session['security_event_name']}", "success")
+                    print(f"Security Login SUCCESS for event: {session['security_event_name']}")
+                    return redirect(url_for('security_scanner'))
+                else:
+                    flash("Invalid event password or event inactive/unpublished.", "danger")
+                    print(f"Security Login FAILED for EventPass='{event_name_password}'")
+            except Exception as e:
+                print(f"ERROR: Security login failed: {e}")
+                traceback.print_exc()
+                flash("Security login error.", "danger")
+        else:
+            flash("Invalid security username.", "danger")
+    return render_template('security_login.html') # Assumes security_login.html exists
 
 @app.route('/security/logout')
-def security_logout(): session.clear(); flash("Security session ended.", "info"); return redirect(url_for('security_login'))
+def security_logout():
+    session.pop('security_event_name', None)
+    session.pop('security_event_id', None)
+    session.pop('security_event_sheet_title', None)
+    flash("Security session ended.", "info")
+    return redirect(url_for('security_login'))
 
 @app.route('/security/scanner')
 def security_scanner():
-    if 'security_event_sheet_title' not in session: flash("Please login as security.", "warning"); return redirect(url_for('security_login'))
-    return render_template('security_scanner.html', event_name=session.get('security_event_name',"Event"))
+    if 'security_event_sheet_title' not in session:
+        flash("Please login as security.", "warning")
+        return redirect(url_for('security_login'))
+    return render_template('security_scanner.html', event_name=session.get('security_event_name',"Event")) # Assumes security_scanner.html exists
 
 @app.route('/security/verify_qr', methods=['POST'])
 def verify_qr():
-     # (Assumed correct)
-    if 'security_event_sheet_title' not in session or 'security_event_id' not in session: return jsonify({'status': 'error', 'message': 'Security session invalid.'}), 401
-    data = request.get_json();
-    if not data or 'qr_data' not in data: return jsonify({'status': 'error', 'message': 'No QR data.'}), 400
-    qr_content = data.get('qr_data'); print(f"VerifyQR POST: QR={qr_content}")
-    try: 
-        parsed_data={}; scanned_unique_id=None; scanned_fest_id=None
-        for item in qr_content.split(','):
-            if ':' in item: key, value = item.split(':', 1); parsed_data[key.strip()] = value.strip()
-        scanned_unique_id = parsed_data.get('UniqueID'); scanned_fest_id = parsed_data.get('FestID');
-        if not scanned_unique_id or not scanned_fest_id: return jsonify({'status':'error', 'message':'QR missing data.'}), 400
-        if scanned_fest_id != session.get('security_event_id'): return jsonify({'status':'error', 'message':'QR for wrong event.'}), 400
-    except Exception as e: print(f"ERROR parsing QR: {e}"); return jsonify({'status':'error', 'message':'Invalid QR format.'}), 400
-    try:
-        client = get_gspread_client(); sheet_title = session['security_event_sheet_title']; headers = ['UniqueID','Name','Email','Mobile','College','Present','Timestamp']
-        print(f"VerifyQR: Checking SS '{sheet_title}' for UID '{scanned_unique_id}'")
-        reg_sheet = get_or_create_worksheet(client, sheet_title, "Registrations", headers);
-        try: cell = reg_sheet.find(scanned_unique_id, in_column=1)
-        except gspread.exceptions.CellNotFound: print(f"VerifyQR ERROR: UID '{scanned_unique_id}' not found."); return jsonify({'status':'error', 'message':'Participant not found.'}), 404
-        if cell:
-             row_data=reg_sheet.row_values(cell.row); p_idx,n_idx,e_idx,m_idx = 5,1,2,3; 
-             def get_val(idx): return row_data[idx] if len(row_data)>idx else '';
-             status,name,email,mobile = get_val(p_idx),get_val(n_idx),get_val(e_idx),get_val(m_idx)
-             if str(status).strip().lower() == 'yes':
-                 print(f"VerifyQR WARN: Already present: {name}"); return jsonify({'status':'warning','message':'ALREADY SCANNED!', 'name':name,'details':f"{email}, {mobile}"})
-             print(f"VerifyQR: Marking present: {name}"); reg_sheet.update_cell(cell.row, p_idx+1, 'yes');
-             return jsonify({'status':'success','message':'Access Granted!','name':name,'details':f"{email}, {mobile}"});
-        else: 
-             print(f"VerifyQR ERROR: UID '{scanned_unique_id}' not found (fallback)."); return jsonify({'status':'error','message':'Participant not found.'}), 404;
-    except Exception as e: print(f"ERROR: Verify QR failed: {e}"); traceback.print_exc(); return jsonify({'status':'error', 'message':'Verification server error.'}), 500
+    if 'security_event_sheet_title' not in session or 'security_event_id' not in session:
+        return jsonify({'status': 'error', 'message': 'Security session invalid.'}), 401
+    
+    data = request.get_json()
+    if not data or 'qr_data' not in data:
+        return jsonify({'status': 'error', 'message': 'No QR data.'}), 400
+    
+    qr_content = data.get('qr_data')
+    print(f"VerifyQR POST: QR={qr_content}")
 
+    try: 
+        parsed_data={}
+        for item in qr_content.split(','):
+            if ':' in item:
+                key, value = item.split(':', 1)
+                parsed_data[key.strip()] = value.strip()
+        
+        scanned_unique_id = parsed_data.get('UniqueID')
+        scanned_fest_id = parsed_data.get('FestID')
+
+        if not scanned_unique_id or not scanned_fest_id:
+            return jsonify({'status':'error', 'message':'QR missing essential data (UniqueID or FestID).'}), 400
+        if scanned_fest_id != session.get('security_event_id'):
+            return jsonify({'status':'error', 'message':'QR code is for a different event.'}), 400
+    except Exception as e:
+        print(f"ERROR parsing QR content '{qr_content}': {e}")
+        return jsonify({'status':'error', 'message':'Invalid QR code format.'}), 400
+
+    try:
+        client = get_gspread_client_cached()
+        sheet_title = session['security_event_sheet_title']
+        event_headers_template = ['UniqueID','Name','Email','Mobile','College','Present','Timestamp']
+        
+        print(f"VerifyQR: Attempting to open/create SS '{sheet_title}' for UID '{scanned_unique_id}'")
+        reg_sheet = get_or_create_worksheet(client, sheet_title, "Registrations", event_headers_template) # Pass headers here for creation
+        
+        try:
+            cell = reg_sheet.find(scanned_unique_id, in_column=1)
+        except gspread.exceptions.CellNotFound:
+            print(f"VerifyQR ERROR: UID '{scanned_unique_id}' not found in sheet '{sheet_title}'.")
+            return jsonify({'status':'error', 'message':'Participant not found in registration list.'}), 404
+        
+        if not cell: 
+            print(f"VerifyQR ERROR: UID '{scanned_unique_id}' find returned None (unexpected).");
+            return jsonify({'status':'error','message':'Participant not found (internal error).'}), 404;
+
+        row_data = reg_sheet.row_values(cell.row)
+        sheet_headers = reg_sheet.row_values(1)
+
+        try:
+            p_idx = sheet_headers.index('Present')
+            n_idx = sheet_headers.index('Name')
+            e_idx = sheet_headers.index('Email')
+            m_idx = sheet_headers.index('Mobile')
+            ts_idx = sheet_headers.index('Timestamp')
+        except ValueError as ve:
+            print(f"ERROR: Header missing in sheet '{sheet_title}'. Expected one of {event_headers_template}. Actual headers: {sheet_headers}. Error: {ve}")
+            return jsonify({'status':'error', 'message':'Registration sheet configuration error. Contact admin.'}), 500
+             
+        def get_val(idx, default_val=''):
+            return row_data[idx] if len(row_data) > idx else default_val
+        
+        status = get_val(p_idx).strip().lower()
+        name = get_val(n_idx)
+        email = get_val(e_idx)
+        mobile = get_val(m_idx)
+        
+        current_scan_timestamp = datetime.now().strftime(DATETIME_DISPLAY_FORMAT)
+
+        if status == 'yes':
+            last_scan_time = get_val(ts_idx, "previously")
+            print(f"VerifyQR WARN: Already present: {name}")
+            return jsonify({'status':'warning','message':'ALREADY SCANNED!', 'name':name,'details':f"{email}, {mobile}. Scanned: {last_scan_time}"})
+        
+        print(f"VerifyQR: Marking present: {name}")
+        updates_to_perform = [
+            {'range': gspread.utils.rowcol_to_a1(cell.row, p_idx + 1), 'values': [['yes']]},
+            {'range': gspread.utils.rowcol_to_a1(cell.row, ts_idx + 1), 'values': [[current_scan_timestamp]]}
+        ]
+        reg_sheet.batch_update(updates_to_perform)
+        
+        return jsonify({'status':'success','message':'Access Granted!','name':name,'details':f"{email}, {mobile}. Checked-in: {current_scan_timestamp}"});
+
+    except gspread.exceptions.SpreadsheetNotFound:
+        print(f"ERROR: Registration sheet '{sheet_title}' not found during verification.")
+        return jsonify({'status':'error', 'message':f"Event registration data ('{sheet_title}') not found."}), 404
+    except Exception as e:
+        print(f"ERROR: Verify QR operation failed: {e}")
+        traceback.print_exc()
+        return jsonify({'status':'error', 'message':'Verification server error.'}), 500
 
 # --- Initialization Function ---
 def initialize_application_on_startup():
     print("\n----- Initializing Application on Startup -----")
     try:
-        get_sheet_objects_cached()
-        print("Initial check/load of Google services complete.")
-    except ValueError as ve: 
-        print(f"🔴🔴🔴 FATAL STARTUP ERROR (Credentials): {ve}")
+        client, spreadsheet, clubs_sheet, fests_sheet = get_sheet_objects_cached()
+        print(f"Init Check PASSED: Master SS '{spreadsheet.title}' and its tabs are ready.")
+        
+        try:
+            if YOUR_PERSONAL_EMAIL:
+                share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, spreadsheet.title)
+        except Exception as e_share:
+            print(f"WARN during sharing of master sheet: {e_share}")
+
+    except ValueError as ve_creds:
+        print(f"🔴🔴🔴 FATAL STARTUP ERROR (Credentials Missing or Invalid): {ve_creds}")
+        traceback.print_exc()
         exit(1)
-    except Exception as e:
-        print(f"CRITICAL INIT ERROR during application startup: {e}"); traceback.print_exc();
+    except Exception as e_init:
+        print(f"CRITICAL INIT ERROR during application startup: {e_init}")
+        traceback.print_exc()
         exit(1)
     
     if not app.config.get('MAIL_USERNAME') or not app.config.get('MAIL_PASSWORD'):
@@ -756,4 +863,6 @@ if __name__ == '__main__':
     else: 
         print("Flask starting up - Reloader process detected. Skipping one-time initialization.")
     
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), use_reloader=True)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting Flask development server (host=0.0.0.0, port={port})...")
+    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=True)
