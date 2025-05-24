@@ -1,66 +1,351 @@
 {% extends "layout.html" %}
 
 {% block title %}
-    {{ fest.FestName if fest else "Event Details" }} - Event Details
+    {{ fest.FestName if fest else "Event Details" }} - Dionysus Events
+{% endblock %}
+
+{% block head_styles %}
+    <style>
+        .event-detail-container {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        
+        .event-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            max-width: 1200px;
+            margin: 0 auto;
+            transition: transform 0.3s ease;
+        }
+        
+        .event-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .event-header {
+            background: linear-gradient(45deg, #6a11cb 0%, #2575fc 100%);
+            color: white;
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .event-header::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('https://images.unsplash.com/photo-1492684223066-81342ee5ff30?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80') center/cover;
+            opacity: 0.2;
+            z-index: 0;
+        }
+        
+        .event-header-content {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .event-title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .event-organizer {
+            display: flex;
+            align-items: center;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .event-organizer i {
+            margin-right: 0.5rem;
+            color: #ffcc00;
+        }
+        
+        .event-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .meta-item {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.9rem;
+        }
+        
+        .meta-item i {
+            margin-right: 0.5rem;
+        }
+        
+        .event-body {
+            padding: 2rem;
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            color: #333;
+            margin-bottom: 1rem;
+            position: relative;
+            padding-bottom: 0.5rem;
+        }
+        
+        .section-title::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(45deg, #6a11cb 0%, #2575fc 100%);
+        }
+        
+        .event-description {
+            line-height: 1.8;
+            color: #555;
+            font-size: 1.1rem;
+        }
+        
+        .registration-section {
+            background: #f9f9f9;
+            padding: 2rem;
+            border-radius: 12px;
+            margin-top: 2rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #444;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e1e5ee;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            border-color: #6a11cb;
+            box-shadow: 0 0 0 3px rgba(106, 17, 203, 0.1);
+            outline: none;
+        }
+        
+        .btn-submit {
+            background: linear-gradient(45deg, #6a11cb 0%, #2575fc 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: inline-block;
+        }
+        
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(106, 17, 203, 0.3);
+        }
+        
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #ffeeba;
+            margin: 1.5rem 0;
+        }
+        
+        .back-link {
+            text-align: center;
+            margin-top: 2rem;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .event-title {
+                font-size: 1.8rem;
+            }
+            
+            .event-meta {
+                flex-direction: column;
+                gap: 0.8rem;
+            }
+            
+            .event-header, .event-body {
+                padding: 1.5rem;
+            }
+        }
+        
+        /* Animation for the header */
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .event-header {
+            animation: gradientBG 15s ease infinite;
+            background-size: 400% 400%;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
 <div class="event-detail-container">
     {% if fest %}
-        <article class="event-info">
-            <h2>{{ fest.FestName }}</h2>
-            <p><strong>Organized by:</strong> {{ fest.ClubName if fest.ClubName else "N/A" }}</p>
-            <p><strong>Starts:</strong> {{ fest.StartTime|replace('T', ' ') if fest.StartTime else 'N/A' }}</p>
-            <p><strong>Ends:</strong> {{ fest.EndTime|replace('T', ' ') if fest.EndTime else 'N/A' }}</p>
-            <p><strong>Registration Deadline:</strong> <strong class="text-emphasis">{{ fest.RegistrationEndTime | replace('T', ' ') if fest.RegistrationEndTime else 'N/A' }}</strong></p>
-            {% if fest.Venue %}<p><strong>Venue:</strong> {{ fest.Venue }}</p>{% endif %}
-            {% if fest.Guests %}<p><strong>Special Guests:</strong> {{ fest.Guests }}</p>{% endif %}
-
-            <h3>Event Description:</h3>
-            {# Use |safe only if you trust the source of details absolutely #}
-            <p>{{ fest.Details if fest.Details else "No specific details provided."}}</p> 
-        </article>
-
-        <hr> {# Separator #}
-
-        {# Conditionally show registration form #}
-        {% if registration_open %}
-            <section class="registration-form">
-                <h3>Join This Event!</h3>
-                <form method="POST" action="{{ url_for('join_event', fest_id_param=fest.FestID) }}">
-                    <div class="form-group">
-                        <label for="name">Full Name:</label>
-                        <input type="text" id="name" name="name" required>
+        <div class="event-card">
+            <div class="event-header">
+                <div class="event-header-content">
+                    <h1 class="event-title">{{ fest.FestName }}</h1>
+                    
+                    <div class="event-organizer">
+                        <i class="fas fa-users"></i>
+                        <span>Organized by {{ fest.ClubName if fest.ClubName else "Dionysus Events" }}</span>
                     </div>
-                    <div class="form-group">
-                        <label for="email">Email Address:</label>
-                        <input type="email" id="email" name="email" required>
+                    
+                    <div class="event-meta">
+                        <div class="meta-item">
+                            <i class="fas fa-calendar-day"></i>
+                            <span>{{ fest.StartTime|replace('T', ' ') if fest.StartTime else 'TBA' }}</span>
+                        </div>
+                        
+                        <div class="meta-item">
+                            <i class="fas fa-map-marker-alt"></i>
+                            <span>{{ fest.Venue if fest.Venue else 'Venue TBA' }}</span>
+                        </div>
+                        
+                        <div class="meta-item">
+                            <i class="fas fa-clock"></i>
+                            <span>Register by: {{ fest.RegistrationEndTime | replace('T', ' ') if fest.RegistrationEndTime else 'Check deadline' }}</span>
+                        </div>
+                        
+                        {% if fest.Guests %}
+                        <div class="meta-item">
+                            <i class="fas fa-star"></i>
+                            <span>Special Guests: {{ fest.Guests }}</span>
+                        </div>
+                        {% endif %}
                     </div>
-                    <div class="form-group">
-                        <label for="mobile">Mobile Number:</label>
-                        <input type="tel" id="mobile" name="mobile" pattern="[0-9]{10}" placeholder="10 digit mobile number" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="college">College Name:</label>
-                        <input type="text" id="college" name="college" required>
-                    </div>
-                    <button type="submit" class="btn btn-submit">Submit Registration</button>
-                </form>
-            </section>
-        {% else %}
-            <div class="alert alert-warning">
-                Registration for this event is currently closed (Deadline: {{ fest.RegistrationEndTime|replace('T', ' ') if fest.RegistrationEndTime else 'N/A' }}).
+                </div>
             </div>
-        {% endif %}
-
-        <div class="back-link">
-            <a href="{{ url_for('live_events') }}" class="btn btn-secondary">Back to Live Events</a>
+            
+            <div class="event-body">
+                <h2 class="section-title">About the Event</h2>
+                <div class="event-description">
+                    {{ fest.Details if fest.Details else "Exciting details coming soon! Stay tuned for more information about this amazing event." }}
+                </div>
+                
+                {% if registration_open %}
+                    <div class="registration-section">
+                        <h2 class="section-title">Join the Experience!</h2>
+                        <p>Fill out the form below to secure your spot at this incredible event.</p>
+                        
+                        <form method="POST" action="{{ url_for('join_event', fest_id_param=fest.FestID) }}">
+                            <div class="form-group">
+                                <label for="name">Full Name</label>
+                                <input type="text" id="name" name="name" placeholder="Enter your full name" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="email">Email Address</label>
+                                <input type="email" id="email" name="email" placeholder="Enter your email" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="mobile">Mobile Number</label>
+                                <input type="tel" id="mobile" name="mobile" pattern="[0-9]{10}" 
+                                       placeholder="Enter 10-digit mobile number" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="college">College Name</label>
+                                <input type="text" id="college" name="college" placeholder="Enter your college name" required>
+                            </div>
+                            
+                            <button type="submit" class="btn-submit">
+                                <i class="fas fa-paper-plane"></i> Register Now
+                            </button>
+                        </form>
+                    </div>
+                {% else %}
+                    <div class="alert-warning">
+                        <i class="fas fa-exclamation-circle"></i> 
+                        Registration for this event is now closed. 
+                        {% if fest.RegistrationEndTime %}
+                            The deadline was {{ fest.RegistrationEndTime|replace('T', ' ') }}.
+                        {% endif %}
+                    </div>
+                {% endif %}
+                
+                <div class="back-link">
+                    <a href="{{ url_for('live_events') }}" class="btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to All Events
+                    </a>
+                </div>
+            </div>
         </div>
-
     {% else %}
-        <h2>Event Not Found</h2>
-        <p>The event you are looking for could not be found.</p>
-        <p><a href="{{ url_for('live_events') }}">Return to Live Events</a></p>
+        <div class="event-card">
+            <div class="event-header">
+                <div class="event-header-content">
+                    <h1 class="event-title">Event Not Found</h1>
+                </div>
+            </div>
+            
+            <div class="event-body">
+                <div class="event-description">
+                    <p>The event you're looking for couldn't be found. It might have been removed or the link might be incorrect.</p>
+                    <p>Check out our other exciting events!</p>
+                </div>
+                
+                <div class="back-link">
+                    <a href="{{ url_for('live_events') }}" class="btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Browse Events
+                    </a>
+                </div>
+            </div>
+        </div>
     {% endif %}
 </div>
 {% endblock %}
