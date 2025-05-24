@@ -7,8 +7,8 @@
 {% block content %}
 <div class="form-container">
     <h2>Create a New Fest</h2>
-    {# IMPORTANT: Add enctype for file uploads #}
-    <form method="POST" action="{{ url_for('create_fest') }}" enctype="multipart/form-data">
+    {# enctype="multipart/form-data" is NO LONGER NEEDED if not uploading files #}
+    <form method="POST" action="{{ url_for('create_fest') }}">
         {# If using Flask-WTF, you'd have {{ form.hidden_tag() }} or similar for CSRF #}
 
         <div class="form-group">
@@ -16,11 +16,13 @@
             <input type="text" id="fest_name" name="fest_name" class="form-control" value="{{ form_data.get('fest_name', '') }}" required>
         </div>
 
+        {# --- REMOVED FEST IMAGE UPLOAD SECTION ---
         <div class="form-group">
             <label for="fest_image">Fest Image/Poster (Optional):</label>
             <input type="file" id="fest_image" name="fest_image" class="form-control-file" accept="image/png, image/jpeg, image/gif, image/webp">
             <small class="form-text text-muted">Upload an image (PNG, JPG, GIF, WEBP). Max 2MB recommended.</small>
         </div>
+        --- END REMOVED FEST IMAGE UPLOAD SECTION --- #}
 
         <div class="form-group">
             <label for="start_time">Event Start Time:</label>
