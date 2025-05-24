@@ -1,29 +1,15 @@
-<div class="card event-card mb-3">
-    {% if fest.FestImageLink and fest.FestImageLink != "" %}
-        {# fest.FestImageLink should now store ONLY the Google Drive File ID #}
-        {# The url_for will generate a link like /fest_image_proxy/YOUR_FILE_ID #}
-        <img src="{{ url_for('fest_image_proxy', file_id=fest.FestImageLink) }}" class="card-img-top fest-card-image" alt="{{ fest.FestName }} Poster" style="width:100%; height:200px; object-fit:cover;">
-    {% else %}
-        <img src="{{ url_for('static', filename='img/default_event_placeholder.png') }}" class="card-img-top fest-card-image" alt="Event Placeholder" style="width:100%; height:200px; object-fit:contain; background-color:#f0f0f0;">
-    {% endif %}
-
-    <div class="card-body">
-        <h5 class="card-title">{{ fest.FestName | default('Unnamed Event') }}</h5>
-        <p class="card-text">
-            <small class="text-muted">
-                <strong>Starts:</strong> {{ (fest.StartTime | replace('T', ' ')) if fest.StartTime else 'N/A' }}<br>
-                <strong>Ends:</strong> {{ (fest.EndTime | replace('T', ' ')) if fest.EndTime else 'N/A' }}<br>
-                <strong class="text-danger">Register By: {{ (fest.RegistrationEndTime | replace('T', ' ')) if fest.RegistrationEndTime else 'N/A' }}</strong>
-            </small>
-        </p>
-        {% if fest.Venue %}
-            <p class="card-text"><small><strong>Venue:</strong> {{ fest.Venue }}</small></p>
-        {% endif %}
-        <p class="card-text event-details-preview">
-            {{ fest.Details | truncate(100, True, '...') if fest.Details else 'No details provided.' }}
-        </p>
+<div class="event-card">
+    {# Assuming basic card structure for consistency #}
+    <h3 class="card-header">{{ fest.FestName }}</h3>
+     <div class="card-body">
+        <p><strong>Starts:</strong> {{ fest.StartTime | replace('T', ' ') if fest.StartTime else 'N/A' }}</p>
+        <p><strong>Ends:</strong> {{ fest.EndTime | replace('T', ' ') if fest.EndTime else 'N/A' }}</p>
+        {# Highlight the registration deadline #}
+        <p><strong>Register By:</strong> <strong class="text-emphasis">{{ fest.RegistrationEndTime | replace('T', ' ') if fest.RegistrationEndTime else 'N/A' }}</strong></p>
+        {% if fest.Venue %}<p><strong>Venue:</strong> {{ fest.Venue }}</p>{% endif %}
+        <p class="event-details-preview">{{ fest.Details | truncate(100, True) }}</p>
     </div>
-    <div class="card-footer bg-light">
-        <a href="{{ url_for('event_detail', fest_id_param=fest.FestID) }}" class="btn btn-primary btn-sm btn-block">View Details & Join</a>
-    </div>
+     <div class="card-footer">
+        <a href="{{ url_for('event_detail', fest_id_param=fest.FestID) }}" class="btn btn-info btn-block">View Details & Join</a>
+     </div>
 </div>
