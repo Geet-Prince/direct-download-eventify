@@ -528,7 +528,7 @@ def join_event(fest_id_param):
         if str(fest_info.get('Published','')).lower()!='yes': flash("Event not published.", "warning"); return redirect(url_for('event_detail',fest_id_param=fest_id_param));
         
         reg_end_time = parse_datetime(fest_info.get('RegistrationEndTime', ''))
-        start_time = parse_datetime(fest_info.get('StartTime', '')) # Get start time
+        start_time = parse_datetime(fest_info.get('StartTime', ''))
 
         if not reg_end_time or not start_time or datetime.now() >= reg_end_time or datetime.now() >= start_time:
             flash("Registration closed or event has already started.", "warning"); 
@@ -538,7 +538,7 @@ def join_event(fest_id_param):
         individual_sheet_title=f"{safe_base[:80]}_{fest_info['FestID']}"; event_headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
         reg_sheet=get_or_create_worksheet(g_client, individual_sheet_title,"Registrations",event_headers);
         
-        if reg_sheet.findall(email, in_column=3): # Check if email is in the 'Email' column (index 2, so column 3)
+        if reg_sheet.findall(email, in_column=3):
             flash(f"You are already registered for '{fest_info.get('FestName')}' with this email.", "warning"); 
             return redirect(url_for('event_detail', fest_id_param=fest_id_param));
 
@@ -546,26 +546,31 @@ def join_event(fest_id_param):
         reg_sheet.append_row(row);
         
         qr_data=f"UniqueID:{user_id},FestID:{fest_info['FestID']},Name:{name[:20].replace(',',';')}"; 
-        img=qrcode.make(qr_data); 
-        buf=PythonBytesIO(); 
-        img.save(buf,format="PNG"); 
-        buf.seek(0) 
-        img_str=base64.b64encode(buf.getvalue()).decode();
+        img_qr_obj=qrcode.make(qr_data); # Get the image object
         
-        # --- Send Email with QR Code ---
+        # --- Prepare QR Image for Email Attachment ---
+        qr_image_io = PythonBytesIO()
+        img_qr_obj.save(qr_image_io, format="PNG")
+        qr_image_io.seek(0) # Rewind the buffer to the beginning
+        
+        # Generate a unique Content-ID for the image
+        qr_image_cid = str(uuid.uuid4())
+        # --- End Prepare ---
+        
         email_sent_successfully = False
         fest_name_email = fest_info.get('FestName', 'Event')
         
         event_date_str = "N/A"
         event_time_str = "N/A"
-        # start_time_obj is already parsed as `start_time` above
         if start_time:
-            event_date_str = start_time.strftime('%B %d, %Y') # e.g., July 26, 2024
-            event_time_str = start_time.strftime('%I:%M %p')   # e.g., 02:30 PM
+            event_date_str = start_time.strftime('%B %d, %Y')
+            event_time_str = start_time.strftime('%I:%M %p')
 
         if app.config.get('MAIL_USERNAME') and app.config.get('MAIL_PASSWORD'):
             try:
                 subject = f"Your QR Code for {fest_name_email}"
+                
+                # MODIFIED HTML Body to use CID
                 html_body = f"""
                 <html>
                 <head>
@@ -595,7 +600,7 @@ def join_event(fest_id_param):
                         </div>
                         
                         <div class="qr-code-section">
-                            <img src="data:image/png;base64,{img_str}" alt="QR Code for {fest_name_email}" class="qr-actual">
+                            <img src="cid:{qr_image_cid}" alt="QR Code for {fest_name_email}" class="qr-actual">
                         </div>
 
                         <div class="details-section">
@@ -620,6 +625,16 @@ def join_event(fest_id_param):
                 </html>
                 """
                 msg = Message(subject, recipients=[email], html=html_body)
+                
+                # Attach the image with Content-ID
+                msg.attach(
+                    filename="qrcode.png",
+                    content_type="image/png",
+                    data=qr_image_io.read(), # Read data from the BytesIO buffer
+                    disposition="inline",
+                    headers=[('Content-ID', f'<{qr_image_cid}>')] # Note the angle brackets for CID
+                )
+                
                 mail.send(msg)
                 email_sent_successfully = True
             except Exception as email_exc:
@@ -628,6 +643,12 @@ def join_event(fest_id_param):
         else:
             print(f"WARN: Mail not configured. Skipping email to {email}.")
 
+        # This part for rendering join_success.html still needs the base64 string
+        # to display the QR on the webpage itself.
+        qr_image_io.seek(0) # Rewind again for base64 encoding for the webpage
+        img_str_for_web = base64.b64encode(qr_image_io.getvalue()).decode()
+
+
         if email_sent_successfully:
             flash(f"Successfully joined '{fest_name_email}'! Your QR code has been sent to {email}.", "success")
         elif app.config.get('MAIL_USERNAME') and app.config.get('MAIL_PASSWORD'):
@@ -635,7 +656,7 @@ def join_event(fest_id_param):
         else:
             flash(f"Successfully joined '{fest_name_email}'! Your QR code is shown below. (Email confirmation not sent as mail server is not configured).", "info")
         
-        return render_template('join_success.html', qr_image=img_str, fest_name=fest_name_email, user_name=name);
+        return render_template('join_success.html', qr_image=img_str_for_web, fest_name=fest_name_email, user_name=name);
 
     except gspread.exceptions.SpreadsheetNotFound: 
         flash("Registration error: Event data sheet missing.", "danger"); 
