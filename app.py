@@ -8,7 +8,7 @@ from operator import itemgetter
 import os
 import traceback
 import uuid
-# import json # Not needed as we're not loading a JSON file for creds
+# import json # Not needed as we are not loading a JSON file for creds
 
 # Third-party library imports
 from flask import (
@@ -17,37 +17,36 @@ from flask import (
 )
 from fpdf import FPDF
 import gspread
-# Using oauth2client for gspread as per existing structure if that's what gspread version needs
-# for from_json_keyfile_dict equivalent.
 from oauth2client.service_account import ServiceAccountCredentials as GSpreadServiceAccountCredentials
 import pandas as pd
 import qrcode
 from werkzeug.utils import secure_filename
 
-# For Google Drive API - uses google-auth's Credentials
+# For Google Drive API
 from google.oauth2.service_account import Credentials as GoogleAuthServiceAccountCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-# from dotenv import load_dotenv # Optional: for local .env files
+# from dotenv import load_dotenv # Optional for local .env files
 # load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY')
 if not app.secret_key:
-    print("🔴 FATAL: FLASK_SECRET_KEY is not set in the environment. Application cannot start securely.")
-    if app.debug:
-        print("🔴 WARNING: Using a temporary FLASK_SECRET_KEY for debug mode. SET IT IN YOUR ENVIRONMENT.")
-        app.secret_key = os.urandom(24)
-    else:
-        raise ValueError("FLASK_SECRET_KEY is not set. This is required for production.")
+    print("🔴 FATAL: FLASK_SECRET_KEY is not set. Using a temporary key for local dev, but this WILL FAIL in production or if app.debug is False.")
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        raise ValueError("FLASK_SECRET_KEY is not set in the environment. This is required for production.")
+    app.secret_key = "temp_dev_secret_key_for_flask_reloader_only_SET_IN_ENV"
 
 
 # --- Google Setup ---
 SCOPE_SHEETS = ['https://www.googleapis.com/auth/spreadsheets']
 SCOPE_DRIVE = ['https://www.googleapis.com/auth/drive']
+SCOPE_GSPREAD_CLIENT_FALLBACK = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
+
 
 MASTER_SHEET_NAME = os.environ.get("MASTER_SHEET_NAME", 'event management')
+MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID")
 YOUR_PERSONAL_EMAIL = os.environ.get("YOUR_PERSONAL_SHARE_EMAIL")
 FEST_IMAGES_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID")
 
@@ -67,42 +66,21 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_google_creds_dict_from_env():
-    """
-    Constructs the credentials dictionary from environment variables.
-    This dictionary format is suitable for from_service_account_info (google-auth)
-    and from_json_keyfile_dict (oauth2client).
-    """
-    # Keys expected by from_service_account_info (google-auth)
-    # and also by from_json_keyfile_dict (oauth2client)
     expected_keys_map = {
-        "type": "GOOGLE_TYPE",
-        "project_id": "GOOGLE_PROJECT_ID",
-        "private_key_id": "GOOGLE_PRIVATE_KEY_ID",
-        "private_key": "GOOGLE_PRIVATE_KEY",
-        "client_email": "GOOGLE_CLIENT_EMAIL",
-        "client_id": "GOOGLE_CLIENT_ID",
-        "auth_uri": "GOOGLE_AUTH_URI",
-        "token_uri": "GOOGLE_TOKEN_URI",
+        "type": "GOOGLE_TYPE", "project_id": "GOOGLE_PROJECT_ID",
+        "private_key_id": "GOOGLE_PRIVATE_KEY_ID", "private_key": "GOOGLE_PRIVATE_KEY",
+        "client_email": "GOOGLE_CLIENT_EMAIL", "client_id": "GOOGLE_CLIENT_ID",
+        "auth_uri": "GOOGLE_AUTH_URI", "token_uri": "GOOGLE_TOKEN_URI",
         "auth_provider_x509_cert_url": "GOOGLE_AUTH_PROVIDER_X509_CERT_URL",
         "client_x509_cert_url": "GOOGLE_CLIENT_X509_CERT_URL"
-        # "universe_domain" is optional for google-auth, not typically used by oauth2client directly this way
     }
     creds_dict = {}
-    missing_vars = []
-    for key, env_var_name in expected_keys_map.items():
-        value = os.environ.get(env_var_name)
-        if not value:
-            missing_vars.append(env_var_name)
-        else:
-            creds_dict[key] = value
-    
+    missing_vars = [env_var for _, env_var in expected_keys_map.items() if not os.environ.get(env_var)]
     if missing_vars:
-        error_msg = f"Missing Google credentials environment variables: {', '.join(missing_vars)}"
-        print(f"CRITICAL ERROR: {error_msg}")
-        raise ValueError(error_msg)
-
+        raise ValueError(f"Missing Google credentials environment variables: {', '.join(missing_vars)}")
+    for key, env_var_name in expected_keys_map.items():
+        creds_dict[key] = os.environ.get(env_var_name)
     creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-    # Add universe_domain if present in env, otherwise google-auth will use default
     creds_dict['universe_domain'] = os.environ.get("GOOGLE_UNIVERSE_DOMAIN", "googleapis.com")
     return creds_dict
 
@@ -110,102 +88,83 @@ def get_gspread_client():
     print("Attempting to authorize gspread client from environment variables...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE_SHEETS)
+        current_scope_for_gspread = SCOPE_SHEETS
+        if not MASTER_SHEET_ID:
+             print("INFO: MASTER_SHEET_ID not set, gspread client will use broader scope for name search.")
+             current_scope_for_gspread = SCOPE_GSPREAD_CLIENT_FALLBACK
+        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, current_scope_for_gspread)
         client = gspread.authorize(creds)
-        print("gspread client authorized successfully.")
+        print(f"gspread client authorized successfully with scope: {current_scope_for_gspread}")
         return client
-    except Exception as e:
-        print(f"CRITICAL ERROR initializing gspread client: {e}")
-        traceback.print_exc()
-        raise
+    except Exception as e: print(f"CRITICAL ERROR initializing gspread client: {e}"); traceback.print_exc(); raise
 
 def get_drive_service():
     print("Attempting to authorize Google Drive service from environment variables...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        # from_service_account_info takes the dictionary directly
         creds = GoogleAuthServiceAccountCredentials.from_service_account_info(creds_dict, scopes=SCOPE_DRIVE)
         service = build('drive', 'v3', credentials=creds, cache_discovery=False)
         print("Google Drive service authorized successfully.")
         return service
-    except Exception as e:
-        print(f"CRITICAL ERROR initializing Google Drive service: {e}")
-        traceback.print_exc()
-        raise
+    except Exception as e: print(f"CRITICAL ERROR initializing Google Drive service: {e}"); traceback.print_exc(); raise
 
 def upload_to_drive(file_stream, filename, target_folder_id):
     if not target_folder_id:
-        print("ERROR (upload_to_drive): Google Drive folder ID not configured. Cannot upload image.")
-        flash("Image upload configuration error on server. Please contact support.", "error")
-        return None
+        print("ERROR (upload_to_drive): GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID not configured."); return None
     try:
         drive_service = get_drive_service()
         file_metadata = {'name': filename, 'parents': [target_folder_id]}
         media = MediaIoBaseUpload(file_stream, mimetype='application/octet-stream', resumable=True)
-        created_file = drive_service.files().create(
-            body=file_metadata, media_body=media, fields='id, webViewLink'
-        ).execute()
+        created_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
         file_id = created_file.get('id')
         print(f"Drive Upload: File ID: {file_id}, Name: {filename}")
-        permission_request_body = {'type': 'anyone', 'role': 'reader'}
-        drive_service.permissions().create(fileId=file_id, body=permission_request_body).execute()
+        drive_service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
         print(f"Drive Upload: Set public read permission for {filename}")
-        image_url = f"https://drive.google.com/uc?export=view&id={file_id}"
-        return image_url
-    except Exception as e:
-        print(f"ERROR uploading '{filename}' to Drive folder '{target_folder_id}': {e}")
-        traceback.print_exc()
-        flash(f"Could not upload image to Google Drive: {e}", "error")
-        return None
+        return f"https://drive.google.com/uc?export=view&id={file_id}"
+    except Exception as e: print(f"ERROR uploading '{filename}' to Drive: {e}"); traceback.print_exc(); return None
 
 def get_master_sheet_tabs():
     client = get_gspread_client(); spreadsheet = None
-    try:
-        print(f"Opening master SS: '{MASTER_SHEET_NAME}'")
-        spreadsheet = client.open(MASTER_SHEET_NAME)
-        print(f"Opened master SS: '{spreadsheet.title}' (ID: {spreadsheet.id})")
-    except gspread.exceptions.SpreadsheetNotFound:
-        print(f"Master SS '{MASTER_SHEET_NAME}' not found. Creating...")
-        spreadsheet = client.create(MASTER_SHEET_NAME)
-        print(f"Created master SS '{MASTER_SHEET_NAME}' (ID: {spreadsheet.id}).")
-        if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, MASTER_SHEET_NAME)
-    except Exception as e: print(f"CRITICAL ERROR opening/creating master SS: {e}"); traceback.print_exc(); raise
-    if not spreadsheet: raise Exception("Failed master SS handle.")
+    if MASTER_SHEET_ID:
+        try:
+            print(f"Opening master SS by ID: '{MASTER_SHEET_ID}'"); spreadsheet = client.open_by_id(MASTER_SHEET_ID)
+            print(f"Opened master SS: '{spreadsheet.title}' (ID: {spreadsheet.id})")
+        except Exception as e_id: print(f"ERROR opening master SS by ID '{MASTER_SHEET_ID}': {e_id}"); spreadsheet = None
+    
+    if not spreadsheet:
+        try:
+            print(f"Attempting to open/create master SS by name: '{MASTER_SHEET_NAME}'"); spreadsheet = client.open(MASTER_SHEET_NAME)
+            print(f"Opened master SS by name: '{spreadsheet.title}' (ID: {spreadsheet.id})")
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"Master SS '{MASTER_SHEET_NAME}' not found by name. Creating...");
+            try:
+                spreadsheet = client.create(MASTER_SHEET_NAME); print(f"Created master SS '{MASTER_SHEET_NAME}'.")
+                if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, MASTER_SHEET_NAME)
+            except Exception as e_create: print(f"CRITICAL ERROR creating master SS: {e_create}"); traceback.print_exc(); raise
+        except Exception as e_name: print(f"CRITICAL ERROR opening master SS by name '{MASTER_SHEET_NAME}': {e_name}"); traceback.print_exc(); raise
+    
+    if not spreadsheet: raise Exception("FATAL: Failed to open or create master spreadsheet.")
 
     clubs_headers=['ClubID','ClubName','Email','PasswordHash']
     fests_headers=['FestID','FestName','ClubID','ClubName','StartTime','EndTime','RegistrationEndTime','Details','Published','Venue','Guests', 'FestImageLink']
-
+    
     try: clubs_sheet = spreadsheet.worksheet("Clubs"); print("Found 'Clubs' ws.")
     except gspread.exceptions.WorksheetNotFound: print("'Clubs' ws not found. Creating..."); clubs_sheet = spreadsheet.add_worksheet(title="Clubs",rows=1, cols=len(clubs_headers)); clubs_sheet.append_row(clubs_headers); clubs_sheet.resize(rows=100); print("'Clubs' ws created.")
-    
     try:
         fests_sheet = spreadsheet.worksheet("Fests"); print("Found 'Fests' ws.")
-        current_headers = []
-        if fests_sheet.row_count >= 1:
-            try: current_headers = fests_sheet.row_values(1)
-            except Exception as e_get_row: print(f"Note: Could not get header row from Fests sheet: {e_get_row}")
-        if not current_headers:
-            print("Fests sheet empty/headerless, appending expected headers...");
-            if fests_sheet.row_count > 0: fests_sheet.clear()
-            fests_sheet.append_row(fests_headers)
+        current_headers = fests_sheet.row_values(1) if fests_sheet.row_count >= 1 else []
+        if not current_headers: print("Fests sheet empty, appending headers..."); fests_sheet.append_row(fests_headers)
         elif current_headers != fests_headers:
-            print(f"INFO: 'Fests' sheet headers differ. Current: {current_headers}, Expected: {fests_headers}")
-            if 'FestImageLink' not in current_headers and len(current_headers) == len(fests_headers) -1 :
-                try:
-                    fests_sheet.update_cell(1, len(fests_headers) , 'FestImageLink')
-                    print(f"'FestImageLink' header added to column {len(fests_headers)}")
+            print(f"INFO: Fests headers differ. Current:{current_headers}, Expected:{fests_headers}")
+            if 'FestImageLink' not in current_headers and len(current_headers) == len(fests_headers)-1:
+                try: fests_sheet.update_cell(1, len(fests_headers), 'FestImageLink'); print("Added 'FestImageLink' header.")
                 except Exception as he: print(f"ERROR adding 'FestImageLink' header: {he}.")
-            else: print("WARN: Fests sheet headers require manual review or migration.")
-    except gspread.exceptions.WorksheetNotFound:
-        print("'Fests' ws not found. Creating...");
-        fests_sheet = spreadsheet.add_worksheet(title="Fests",rows=1,cols=len(fests_headers));
-        fests_sheet.append_row(fests_headers);
-        fests_sheet.resize(rows=100); print("'Fests' ws created.")
-    except Exception as e: print(f"Error access/updating 'Fests' ws: {e}")
+            else: print("WARN: Fests sheet headers need manual review.")
+    except gspread.exceptions.WorksheetNotFound: print("'Fests' ws not found. Creating..."); fests_sheet = spreadsheet.add_worksheet(title="Fests",rows=1,cols=len(fests_headers)); fests_sheet.append_row(fests_headers); fests_sheet.resize(rows=100); print("'Fests' ws created.")
+    except Exception as e: print(f"Error with 'Fests' ws: {e}")
     return client, spreadsheet, clubs_sheet, fests_sheet
 
-# (share_spreadsheet_with_editor and get_or_create_worksheet - assumed correct from previous versions)
-def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
+def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title): # Assumed correct
     if not email_address or "@" not in email_address: print(f"Skipping sharing '{sheet_title}': Invalid email '{email_address}'."); return False
     if not hasattr(spreadsheet, 'list_permissions') or not hasattr(spreadsheet, 'share'): print(f"WARNING: Invalid SS object for sharing '{sheet_title}'."); return False
     try:
@@ -218,79 +177,42 @@ def share_spreadsheet_with_editor(spreadsheet, email_address, sheet_title):
         print(f"Sharing ensured for '{sheet_title}' with {email_address}."); return True
     except Exception as share_e: print(f"\nWARN: Share error for '{sheet_title}' with {email_address}: {share_e}\n"); return False
 
-def get_or_create_worksheet(client, spreadsheet_title, worksheet_title, headers=None):
-    spreadsheet = None
-    worksheet = None
-    headers = headers or []
-    ws_created_now = False
+def get_or_create_worksheet(client, spreadsheet_title, worksheet_title, headers=None): # Using corrected version
+    spreadsheet = None; worksheet = None; headers = headers or []; ws_created_now = False
     try:
-        print(f"Opening/Creating individual SS: '{spreadsheet_title}'")
-        spreadsheet = client.open(spreadsheet_title)
+        print(f"Opening/Creating individual SS: '{spreadsheet_title}'"); spreadsheet = client.open(spreadsheet_title)
         print(f"Opened SS: '{spreadsheet.title}'")
     except gspread.exceptions.SpreadsheetNotFound:
-        print(f"Individual SS '{spreadsheet_title}' not found. Creating...")
-        spreadsheet = client.create(spreadsheet_title)
-        print(f"Created SS '{spreadsheet.title}'.")
-        # Share it if an email is provided
-        if YOUR_PERSONAL_EMAIL: # This 'if' needs to be on its own line or part of a properly structured block
-            share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, spreadsheet.title)
-    except Exception as e:
-        print(f"ERROR getting SS '{spreadsheet_title}': {e}")
-        raise
-    
-    if not spreadsheet:
-        raise Exception(f"Failed to get or create spreadsheet handle for '{spreadsheet_title}'.") # More informative
-    
+        print(f"Individual SS '{spreadsheet_title}' not found. Creating..."); spreadsheet = client.create(spreadsheet_title)
+        print(f"Created SS '{spreadsheet.title}'.");
+        if YOUR_PERSONAL_EMAIL: share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, spreadsheet.title)
+    except Exception as e: print(f"ERROR getting SS '{spreadsheet_title}': {e}"); raise
+    if not spreadsheet: raise Exception(f"Failed to get spreadsheet handle for '{spreadsheet_title}'.")
     try:
-        worksheet = spreadsheet.worksheet(worksheet_title)
-        print(f"Found WS '{worksheet_title}'.")
+        worksheet = spreadsheet.worksheet(worksheet_title); print(f"Found WS '{worksheet_title}'.")
     except gspread.exceptions.WorksheetNotFound:
-        print(f"WS '{worksheet_title}' not found. Creating...")
-        ws_cols = len(headers) if headers else 10
-        worksheet = spreadsheet.add_worksheet(title=worksheet_title, rows=1, cols=ws_cols)
-        ws_created_now = True
+        print(f"WS '{worksheet_title}' not found. Creating..."); ws_cols = len(headers) if headers else 10
+        worksheet = spreadsheet.add_worksheet(title=worksheet_title, rows=1, cols=ws_cols); ws_created_now = True
         print(f"WS '{worksheet_title}' created.")
-    except Exception as e:
-        print(f"ERROR getting WS '{worksheet_title}': {e}")
-        raise
-        
-    if not worksheet:
-        raise Exception(f"Failed to get or create worksheet handle for '{worksheet_title}'.") # More informative
-
+    except Exception as e: print(f"ERROR getting WS '{worksheet_title}': {e}"); raise
+    if not worksheet: raise Exception(f"Failed to get worksheet handle for '{worksheet_title}'.")
     try:
-        first_row = []
-        # Only try to get row_values if the worksheet has rows and wasn't just created
-        if not ws_created_now and worksheet.row_count >= 1:
-             try:
-                 first_row = worksheet.row_values(1)
-             except Exception as api_e: # Catch potential API errors during row_values
-                 print(f"Note: API error getting row 1 for '{worksheet_title}': {api_e}")
-        
+        first_row = worksheet.row_values(1) if not ws_created_now and worksheet.row_count >= 1 else []
         if headers and (ws_created_now or not first_row):
-            print(f"Appending headers to '{worksheet_title}'...")
-            worksheet.append_row(headers)
-            print("Headers appended.")
-            worksheet.resize(rows=500) # Default resize
-        elif headers and first_row != headers:
-            print(f"WARN: Headers mismatch in WS '{worksheet_title}'!")
-            print(f"Sheet Headers: {first_row}")
-            print(f"Expected Headers: {headers}")
-        else:
-            print(f"Headers OK or Not Needed for WS '{worksheet_title}'.")
-    except Exception as hdr_e:
-        print(f"ERROR during header logic for WS '{worksheet_title}': {hdr_e}")
-        # Decide if this should raise or just warn
+            print(f"Appending headers to '{worksheet_title}'..."); worksheet.append_row(headers); print("Headers appended."); worksheet.resize(rows=500);
+        elif headers and first_row != headers: print(f"WARN: Headers mismatch WS '{worksheet_title}'! Sheet: {first_row}, Expected: {headers}")
+        else: print(f"Headers OK/Not Needed for WS '{worksheet_title}'.")
+    except Exception as hdr_e: print(f"ERROR header logic WS '{worksheet_title}': {hdr_e}")
     return worksheet
 
-
 def generate_unique_id(): return str(uuid.uuid4().hex)[:10]
-def hash_password(password): print(f"DEBUG HASH: Placeholder Hash for '{password}'"); return password
-def verify_password(hashed_password, provided_password): print(f"DEBUG VERIFY: Stored:'{hashed_password}', Provided:'{provided_password}', Match:{hashed_password == provided_password}"); return hashed_password == provided_password
+def hash_password(password): print(f"DEBUG HASH: Placeholder for '{password}'"); return password
+def verify_password(hashed, provided): print(f"DEBUG VERIFY: Stored:'{hashed}', Prov:'{provided}', Match:{hashed==provided}"); return hashed == provided
 def parse_datetime(dt_str):
     if not dt_str: return None
     for fmt in DATETIME_INPUT_FORMATS:
         try: return datetime.strptime(str(dt_str).strip(), fmt)
-        except (ValueError, TypeError): continue
+        except: continue
     return None
 
 @app.context_processor
@@ -388,8 +310,6 @@ def create_fest():
         except Exception as e: print(f"ERROR: Create Fest write: {e}"); traceback.print_exc(); flash("DB write error.", "danger"); return render_template('create_fest.html', form_data=form_data_to_pass)
     return render_template('create_fest.html', form_data={})
 
-
-# --- ALL OTHER ROUTES (dashboard, history, edit_fest, end_fest, delete_fest, fest_stats, exports, attendee routes, security routes) ---
 @app.route('/club/dashboard')
 def club_dashboard():
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
@@ -398,7 +318,6 @@ def club_dashboard():
         _,_,_,fests_sheet = get_master_sheet_tabs()
         all_fests_data=fests_sheet.get_all_records() # FestImageLink will be here
     except Exception as e: print(f"ERROR Sheet Access dashboard: {e}"); flash("DB Error.", "danger"); return render_template('club_dashboard.html', club_name=session.get('club_name'), upcoming_fests=[], ongoing_fests=[])
-    
     club_fests_all=[f for f in all_fests_data if str(f.get('ClubID','')) == session['club_id']]
     for fest in club_fests_all:
         try:
@@ -429,20 +348,17 @@ def club_history():
 
 @app.route('/club/fest/<fest_id>/edit', methods=['GET'])
 def edit_fest(fest_id):
-    # (This route is fine as is, it doesn't directly deal with image display/upload)
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
         _,_,_,fests_sheet = get_master_sheet_tabs(); all_fests_data=fests_sheet.get_all_records();
         fest_info = next((f for f in all_fests_data if str(f.get('FestID','')) == fest_id), None);
         if not fest_info: flash("Fest not found.", "danger"); return redirect(url_for('club_dashboard'))
         if str(fest_info.get('ClubID','')) != session['club_id']: flash("Permission denied.", "danger"); return redirect(url_for('club_dashboard'))
-        # If you add an "edit image" feature, you'd handle it in a POST to this or a new route
         return render_template('edit_options.html', fest=fest_info)
     except Exception as e: print(f"ERROR getting edit options FestID {fest_id}: {e}"); traceback.print_exc(); flash("Error getting event options.", "danger"); return redirect(url_for('club_dashboard'))
 
 @app.route('/club/fest/<fest_id>/end', methods=['POST'])
 def end_fest(fest_id):
-    # (This route is fine as is)
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
         _, _, _, fests_sheet = get_master_sheet_tabs()
@@ -464,11 +380,10 @@ def end_fest(fest_id):
 
 @app.route('/club/fest/<fest_id>/delete', methods=['POST'])
 def delete_fest(fest_id):
-    # (This route is fine as is regarding image link. If you want to delete from Drive, add logic here)
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     redirect_url = request.referrer or url_for('club_dashboard')
     try:
-        client, _, _, fests_sheet = get_master_sheet_tabs() # client is needed if deleting Drive file
+        client, _, _, fests_sheet = get_master_sheet_tabs()
         all_fests_data = fests_sheet.get_all_records()
         fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id), None)
         if not fest_info: flash("Fest to delete not found.", "danger"); return redirect(redirect_url)
@@ -482,7 +397,6 @@ def delete_fest(fest_id):
         fests_sheet.delete_rows(fest_cell.row)
         print(f"Fest row for '{fest_name_to_delete}' deleted from sheet.")
 
-        # Optional: Delete image from Google Drive
         if image_link_to_delete and 'drive.google.com' in image_link_to_delete and 'id=' in image_link_to_delete:
             try:
                 drive_file_id = image_link_to_delete.split('id=')[-1].split('&')[0]
@@ -499,7 +413,6 @@ def delete_fest(fest_id):
 
 @app.route('/club/fest/<fest_id>/stats')
 def fest_stats(fest_id):
-    # (This route is fine as is)
     if 'club_id' not in session: flash("Login required.", "warning"); return redirect(url_for('club_login'))
     try:
         client, _, _, master_fests_sheet = get_master_sheet_tabs(); all_fests_data = master_fests_sheet.get_all_records()
@@ -534,7 +447,6 @@ def fest_stats(fest_id):
 
 @app.route('/club/fest/<fest_id>/export/excel')
 def export_excel(fest_id):
-    # (This route is fine as is)
     if 'club_id' not in session: flash("Login required for export.", "warning"); return jsonify({"error": "Unauthorized"}), 401
     try:
         client, _, _, master_fests_sheet = get_master_sheet_tabs(); all_fests_data = master_fests_sheet.get_all_records()
@@ -555,7 +467,6 @@ def export_excel(fest_id):
 
 @app.route('/club/fest/<fest_id>/export/pdf')
 def export_pdf(fest_id):
-    # (This route is fine as is)
     if 'club_id' not in session: flash("Login required for PDF export.", "warning"); return redirect(url_for('club_login'))
     try:
         client, _, _, master_fests_sheet = get_master_sheet_tabs(); all_fests_data = master_fests_sheet.get_all_records()
@@ -598,9 +509,7 @@ def export_pdf(fest_id):
 @app.route('/events')
 def live_events():
     now=datetime.now(); available_fests=[]
-    try:
-        _,_,_,fests_sheet = get_master_sheet_tabs()
-        all_fests_data=fests_sheet.get_all_records() # FestImageLink will be here
+    try: _,_,_,fests_sheet = get_master_sheet_tabs(); all_fests_data=fests_sheet.get_all_records()
     except Exception as e: print(f"ERROR Sheet Access events: {e}"); flash("DB Error.", "danger"); return render_template('live_events.html', fests=[])
     for fest in all_fests_data:
         is_published=str(fest.get('Published','')).strip().lower()=='yes'
@@ -613,9 +522,7 @@ def live_events():
 @app.route('/event/<fest_id_param>')
 def event_detail(fest_id_param):
     fest_info=None; is_open_for_reg=False
-    try:
-        _,_,_,fests_sheet = get_master_sheet_tabs()
-        all_fests_data=fests_sheet.get_all_records() # FestImageLink will be here
+    try: _,_,_,fests_sheet = get_master_sheet_tabs(); all_fests_data=fests_sheet.get_all_records()
     except Exception as e: print(f"ERROR Sheet Access event_detail: {e}"); flash("DB Error.", "danger"); return redirect(url_for('live_events'))
     fest_info = next((f for f in all_fests_data if str(f.get('FestID',''))==fest_id_param), None)
     if not fest_info: flash("Event not found.", "warning"); return redirect(url_for('live_events'));
@@ -637,7 +544,6 @@ def join_event(fest_id_param):
         if str(fest_info.get('Published','')).lower()!='yes': flash("Event not published.", "warning"); return redirect(url_for('event_detail',fest_id_param=fest_id_param));
         reg_end_time = parse_datetime(fest_info.get('RegistrationEndTime', ''))
         if not reg_end_time or datetime.now() >= reg_end_time: flash("Registration closed.", "warning"); return redirect(url_for('event_detail', fest_id_param=fest_id_param));
-
         safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(fest_info.get('FestName','Event'))).strip() or "fest_event";
         individual_sheet_title=f"{safe_base[:80]}_{fest_info['FestID']}"; event_headers=['UniqueID','Name','Email','Mobile','College','Present','Timestamp'];
         reg_sheet=get_or_create_worksheet(client,individual_sheet_title,"Registrations",event_headers);
@@ -716,44 +622,45 @@ def verify_qr():
 def initialize_master_sheets_and_tabs():
     print("\n----- Initializing Master Sheets & Tabs -----")
     try:
-        # This will also check/add FestImageLink header if missing
         client, spreadsheet, clubs_sheet, fests_sheet = get_master_sheet_tabs()
         print(f"Init Check PASSED: Master SS '{MASTER_SHEET_NAME}' ready.")
-    except FileNotFoundError: # Specific catch for missing creds file
-        print("🔴🔴🔴 CRITICAL ERROR: Credentials file for Google Sheets (e.g., 'google_creds.json') NOT FOUND.")
-        print("🔴🔴🔴 Ensure credentials are set up correctly (via file or environment variables as configured).")
-        print("🔴🔴🔴 Application cannot connect to Google Sheets/Drive without proper authentication.")
-        # Optionally, re-raise or exit if this is a fatal startup condition
-        # raise SystemExit("Missing credentials, application cannot start.")
-        return # Stop further initialization
+    except ValueError as ve: 
+        print(f"🔴🔴🔴 FATAL STARTUP ERROR: {ve}")
+        print("🔴🔴🔴 Application cannot start. Please check your GOOGLE_... environment variables for credentials.")
+        exit(1) # Exit if critical credentials are missing
     except Exception as e:
-        print(f"CRITICAL INIT ERROR getting sheets: {e}"); traceback.print_exc(); return
+        print(f"CRITICAL INIT ERROR getting sheets: {e}"); traceback.print_exc();
+        # Check if spreadsheet was even obtained before trying to share
+        if 'spreadsheet' not in locals() or not locals().get('spreadsheet'):
+            print("🔴🔴🔴 Could not obtain spreadsheet handle. Exiting.")
+            exit(1)
+        # If it only failed after getting spreadsheet, we might still try to share.
+    
     try:
-        if YOUR_PERSONAL_EMAIL and spreadsheet: # Check if spreadsheet object exists
+        # Ensure spreadsheet object was successfully created/opened before sharing
+        if 'spreadsheet' in locals() and spreadsheet and YOUR_PERSONAL_EMAIL:
             share_spreadsheet_with_editor(spreadsheet, YOUR_PERSONAL_EMAIL, MASTER_SHEET_NAME)
     except Exception as e: print(f"WARN during sharing: {e}")
     print("----- Initialization Complete -----\n")
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
-    # Check if critical environment variables are set
     if not FEST_IMAGES_DRIVE_FOLDER_ID:
         print("\n🔴 WARNING: GOOGLE_DRIVE_FEST_IMAGES_FOLDER_ID environment variable is NOT SET.")
         print("🔴 Image uploads for fests will NOT function correctly. Please set this variable.\n")
     
-    # Check if FLASK_SECRET_KEY is insecure only once, not on reloads
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        if not os.environ.get('FLASK_SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY') == "temp_dev_secret_key_replace_me":
-            print("\n🔴 WARNING: FLASK_SECRET_KEY is not securely set via environment variable.")
-            print("🔴 Using a temporary/default key. SET a strong FLASK_SECRET_KEY in your environment for production.\n")
+        if not os.environ.get('FLASK_SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY') == "temp_dev_secret_key_for_flask_reloader_only_SET_IN_ENV":
+            print("\n🔴 WARNING: FLASK_SECRET_KEY is not securely set via environment variable for the main process.")
+            print("🔴 Ensure a strong FLASK_SECRET_KEY is set in your deployment environment.\n")
         
         print("Flask starting up - Main process: Initializing...")
         try:
             initialize_master_sheets_and_tabs()
-        except (FileNotFoundError, ValueError) as cred_error: # Catch errors from cred loading
-            print(f"🔴🔴🔴 FATAL STARTUP ERROR: {cred_error}")
+        except ValueError as cred_error:
+            print(f"🔴🔴🔴 FATAL STARTUP ERROR from initialize_master_sheets_and_tabs: {cred_error}")
             print("🔴🔴🔴 Application will not start properly. Please check your Google credentials setup.")
-            exit(1) # Exit if credentials are fundamentally missing/misconfigured for Sheets/Drive
+            exit(1)
         except Exception as init_e:
             print(f"🔴🔴🔴 FATAL STARTUP ERROR during initialization: {init_e}")
             traceback.print_exc()
