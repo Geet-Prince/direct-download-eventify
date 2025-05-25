@@ -7,162 +7,79 @@
 {% block head_styles %}
 <style>
     /* --- Login Page Specific Styles --- */
-
-    /* Ensure html and body allow full height for the gradient background */
-    html, body.login-active-page { /* Target body only when login page class is active */
+    html, body.login-active-page { /* Target body directly when login page is active */
         margin: 0;
         padding: 0;
-        height: 100%; /* Crucial for full-height gradient */
+        height: 100%; /* Crucial for full-height gradient and vertical centering */
     }
 
-    /* Apply gradient background TO THE BODY when this page is active */
     body.login-active-page {
-        display: flex; /* For centering the card wrapper */
-        flex-direction: column; /* For flex behavior */
-        align-items: center; /* Center content horizontally */
-        justify-content: center; /* Center content vertically */
-        background: linear-gradient(135deg, #6a1b9a 0%, #8e24aa 30%, #ab47bc 70%, #ce93d8 100%);
-        font-family: 'Poppins', sans-serif; /* Ensure Poppins is loaded via layout.html */
-    }
-
-    /* This class will be added by JS to the <main class="site-main"> from layout.html */
-    /* We'll make the main area itself a flex container to center the card wrapper */
-    main.site-main.login-page-container {
-        flex-grow: 1;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        padding: 0; /* Remove any padding from layout.html's main if it interferes */
-        overflow-y: auto; /* In case card is too tall */
+        flex-direction: column; /* Allows header/footer to be hidden and main to grow if they were visible */
+        align-items: center;    /* Horizontally center direct children */
+        justify-content: center;/* Vertically center direct children */
+        background: linear-gradient(135deg, #6a1b9a 0%, #8e24aa 30%, #ab47bc 70%, #ce93d8 100%);
+        font-family: 'Poppins', sans-serif; /* Ensure Poppins is loaded */
+        overflow-y: auto; /* Allow scrolling if card itself is too tall for viewport */
+        padding: 20px; /* Add some padding to body for small screens */
+        box-sizing: border-box;
     }
 
-    /* Hide standard header and footer for this immersive login page */
+    /* When login page is active, the main element might not need special flex properties */
+    /* if the body is already doing the primary centering of .login-card-wrapper. */
+    /* We still hide header/footer. */
     body.login-active-page .site-header,
     body.login-active-page .site-footer {
         display: none !important;
     }
 
-    .login-card-wrapper {
-        padding: 20px; /* Some breathing room on small screens */
-        display: flex;
-        justify-content: center;
+    /* The main element from layout.html - ensure it allows its child to be centered */
+    /* If body centers, main might just need to take up space */
+    main.site-main.login-page-container { /* Class added by JS */
+        flex-grow: 1; /* Allows main to take up space if it's a flex item of body */
+        width: 100%;  /* Take full width of what body gives it */
+        display: flex; /* Make main a flex container to center login-card-wrapper */
         align-items: center;
+        justify-content: center;
+        padding:0; /* Reset padding from layout.html if any */
+    }
+
+    .login-card-wrapper {
+        /* This div is now directly centered by main.site-main.login-page-container */
         width: 100%;
-        max-width: 520px; /* Max width for the wrapper to constrain the card */
+        max-width: 480px; /* Constrain the card's width */
+        /* No margin needed if parent is centering */
     }
 
     .login-card {
-        background: rgba(255, 255, 255, 0.1); /* Glassmorphism background */
+        background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px); /* For Safari */
+        -webkit-backdrop-filter: blur(10px);
         border-radius: 20px;
         border: 1px solid rgba(255, 255, 255, 0.18);
-        padding: 2.5rem 3rem; /* Generous padding inside the card */
-        width: 100%; /* Card takes full width of its wrapper */
+        padding: 2.5rem 3rem;
+        width: 100%; /* Take full width of its wrapper */
         box-shadow: 0 10px 35px rgba(0, 0, 0, 0.2);
         text-align: center;
-        color: #ffffff; /* Default text color inside card */
+        color: #ffffff;
     }
 
-    .login-card h2 {
-        font-weight: 700;
-        font-size: 2.2rem;
-        margin-bottom: 0.75rem;
-        color: #fff; /* Explicit white for heading */
-        letter-spacing: 0.5px;
-    }
-    .login-card h2 .fa-shield-alt { /* Font Awesome icon */
-        margin-right: 10px;
-        opacity: 0.8;
-    }
-
-    .login-card .subtext {
-        color: rgba(255, 255, 255, 0.85);
-        margin-bottom: 2.5rem;
-        font-size: 1rem;
-        line-height: 1.6;
-    }
-
-    .login-card .form-group {
-        margin-bottom: 1.75rem;
-        text-align: left; /* Align labels and inputs left */
-        position: relative; /* For icon positioning */
-    }
-
-    .login-card .form-group label {
-        display: block;
-        font-weight: 500;
-        margin-bottom: 0.5rem;
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 0.9rem;
-    }
-
-    .login-card .form-group .input-icon {
-        position: absolute;
-        left: 15px;
-        /* Vertically center icon next to input, accounting for label height */
-        top: calc(1.8em + 0.75rem); /* Approx (label font-size * line-height) + input padding-top */
-        transform: translateY(-50%);
-        color: rgba(255, 255, 255, 0.6);
-        font-size: 1.1em;
-        pointer-events: none;
-    }
-
+    /* ... (rest of your .login-card h2, .subtext, .form-group, input, btn-login, flashes-login styles) ... */
+    /* Ensure these styles are the same as the version that showed the correct card content */
+    .login-card h2 { font-weight: 700; font-size: 2.2rem; margin-bottom: 0.75rem; color: #fff; letter-spacing: 0.5px; }
+    .login-card h2 .fa-shield-alt { margin-right: 10px; opacity: 0.8; }
+    .login-card .subtext { color: rgba(255, 255, 255, 0.85); margin-bottom: 2.5rem; font-size: 1rem; line-height: 1.6; }
+    .login-card .form-group { margin-bottom: 1.75rem; text-align: left; position: relative; }
+    .login-card .form-group label { display: block; font-weight: 500; margin-bottom: 0.5rem; color: rgba(255, 255, 255, 0.9); font-size: 0.9rem; }
+    .login-card .form-group .input-icon { position: absolute; left: 15px; top: calc(1.8em + 0.75rem); transform: translateY(-50%); color: rgba(255, 255, 255, 0.6); font-size: 1.1em; pointer-events: none; }
     .login-card .form-group input[type="email"],
-    .login-card .form-group input[type="password"] {
-        width: 100%;
-        padding: 1rem 1rem 1rem 3rem; /* Left padding for icon */
-        background: rgba(255, 255, 255, 0.15);
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        border-radius: 10px;
-        color: #fff; /* Text color for input */
-        font-size: 1rem;
-        transition: background-color 0.3s, border-color 0.3s, box-shadow 0.3s;
-        box-sizing: border-box;
-    }
-
-    .login-card .form-group input::placeholder {
-        color: rgba(255, 255, 255, 0.6);
-        opacity: 1; /* Ensure placeholder is visible */
-    }
-
-    .login-card .form-group input:focus {
-        background: rgba(255, 255, 255, 0.25);
-        border-color: var(--dionysus-accent, #ffd700); /* Fallback gold */
-        outline: none;
-        box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.3); /* Gold glow */
-    }
-    .login-card .form-group input:focus ~ .input-icon {
-        color: var(--dionysus-accent, #ffd700); /* Fallback gold */
-    }
-
-    .login-card .btn-login {
-        width: 100%;
-        padding: 0.9rem 1.5rem;
-        font-weight: 600;
-        font-size: 1.1rem;
-        border-radius: 10px;
-        border: none;
-        cursor: pointer;
-        transition: background-color 0.2s ease-in-out, transform 0.1s ease, box-shadow 0.2s ease;
-        margin-top: 1rem; /* Space above button */
-        background-color: var(--dionysus-accent, #ffd700); /* Fallback gold */
-        color: var(--dionysus-purple-dark, #4a0e6c); /* Fallback dark purple */
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .login-card .btn-login:hover {
-        background-color: #ffc400; /* Darker gold on hover */
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-    }
-    .login-card .btn-login:active {
-        transform: translateY(0px);
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
-    }
-
-    /* Flashes specific to login card (same as before) */
+    .login-card .form-group input[type="password"] { width: 100%; padding: 1rem 1rem 1rem 3rem; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; color: #fff; font-size: 1rem; transition: all 0.3s; box-sizing: border-box; }
+    .login-card .form-group input::placeholder { color: rgba(255,255,255,0.6); opacity: 1; }
+    .login-card .form-group input:focus { background: rgba(255,255,255,0.25); border-color: var(--dionysus-accent, #ffd700); outline: none; box-shadow: 0 0 0 3px rgba(255,215,0,0.3); }
+    .login-card .form-group input:focus ~ .input-icon { color: var(--dionysus-accent, #ffd700); }
+    .login-card .btn-login { width: 100%; padding: 0.9rem 1.5rem; font-weight: 600; font-size: 1.1rem; border-radius: 10px; border: none; cursor: pointer; transition: all 0.2s; margin-top: 1rem; background-color: var(--dionysus-accent, #ffd700); color: var(--dionysus-purple-dark, #4a0e6c); text-transform: uppercase; letter-spacing: 0.5px; }
+    .login-card .btn-login:hover { background-color: #ffc400; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+    .login-card .btn-login:active { transform: translateY(0px); box-shadow: 0 3px 10px rgba(0,0,0,0.2); }
     .flashes-login { margin-bottom:1.5rem; width:100%; }
     .flashes-login .flash-message { padding:0.75rem 1rem; border-radius:8px; font-size:0.9rem; text-align:left; color:#fff; background-color:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.2); display:flex; align-items:center; }
     .flashes-login .flash-message.flash-success { background-color:rgba(40,167,69,0.6); border-color:rgba(40,167,69,0.9); }
@@ -170,13 +87,10 @@
     .flashes-login .flash-message.flash-warning { background-color:rgba(255,193,7,0.6); border-color:rgba(255,193,7,0.9); color:#333; }
     .flashes-login .flash-message.flash-info { background-color:rgba(23,162,184,0.6); border-color:rgba(23,162,184,0.9); }
     .flashes-login .flash-message .flash-icon { margin-right:0.75em; font-size:1.2em; }
-
 </style>
 {% endblock %}
 
-
 {% block content %}
-{# This div will be centered by the body's flex properties if site-main doesn't get login-page-container #}
 <div class="login-card-wrapper">
     <div class="login-card">
         <h2><i class="fas fa-shield-alt"></i> Club Portal</h2>
@@ -210,42 +124,26 @@
             </div>
             <button type="submit" class="btn btn-login">Log In</button>
         </form>
-
-        {# "Create a Club Account" link has been removed from here #}
         
+        {# "Create a Club Account" link is removed. #}
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-{{ super() if super }} {# Includes scripts from layout.html if any #}
+{{ super() if super }}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         console.log("Login page script: DOMContentLoaded");
-
-        // Add class to body for login page specific styling
-        // The 'theme-dionysus' class should ideally be on the body tag in layout.html
-        // or conditionally added there for this specific page if needed by global theme vars.
-        // For now, let's assume the body background style will be applied by login-active-page.
-        if (!document.body.classList.contains('theme-dionysus')) {
-             // You might add it here if necessary for CSS variables to work,
-             // but it's better if layout.html handles global theming.
-             // document.body.classList.add('theme-dionysus');
-        }
         document.body.classList.add('login-active-page');
         console.log("Login page script: Added 'login-active-page' to body.");
 
-        // Add class to the main content area (from layout.html)
-        // This <main> element in layout.html should be the direct child of <body>
-        // for the body flex properties to center it correctly.
-        const mainElement = document.querySelector('main.site-main'); // More specific selector
+        const mainElement = document.querySelector('main.site-main');
         if (mainElement) {
             mainElement.classList.add('login-page-container');
             console.log("Login page script: Added 'login-page-container' to main.site-main.");
         } else {
-            // If site-main is not found, the body itself is already a flex container
-            // trying to center login-card-wrapper. This might be sufficient.
-            console.warn('Login page script: "main.site-main" element not found in layout.html. Body flex properties will center the content.');
+            console.warn('Login page script: "main.site-main" element not found. Body flex properties will attempt to center the content.');
         }
     });
 </script>
