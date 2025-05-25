@@ -7,48 +7,47 @@
 {% block head_styles %}
 <style>
     /* --- Login Page Specific Styles --- */
-    html, body.login-active-page { /* Target body directly when login page is active */
+    html, body.login-active-page {
         margin: 0;
         padding: 0;
-        height: 100%; /* Crucial for full-height gradient and vertical centering */
+        height: 100%;
+        width: 100%; /* Ensure full width for html and body */
+        overflow-x: hidden; /* Prevent horizontal scroll if card is slightly off */
     }
 
     body.login-active-page {
-        display: flex;
-        flex-direction: column; /* Allows header/footer to be hidden and main to grow if they were visible */
-        align-items: center;    /* Horizontally center direct children */
-        justify-content: center;/* Vertically center direct children */
         background: linear-gradient(135deg, #6a1b9a 0%, #8e24aa 30%, #ab47bc 70%, #ce93d8 100%);
-        font-family: 'Poppins', sans-serif; /* Ensure Poppins is loaded */
-        overflow-y: auto; /* Allow scrolling if card itself is too tall for viewport */
-        padding: 20px; /* Add some padding to body for small screens */
-        box-sizing: border-box;
+        font-family: 'Poppins', sans-serif;
+        position: relative; /* Needed for absolute positioning of children */
+        display: flex; /* Still useful for other direct children if any, or just as a known state */
+        align-items: center;
+        justify-content: center;
     }
 
-    /* When login page is active, the main element might not need special flex properties */
-    /* if the body is already doing the primary centering of .login-card-wrapper. */
-    /* We still hide header/footer. */
+    /* Hide standard header and footer for this immersive login page */
     body.login-active-page .site-header,
     body.login-active-page .site-footer {
         display: none !important;
     }
 
-    /* The main element from layout.html - ensure it allows its child to be centered */
-    /* If body centers, main might just need to take up space */
+    /* We won't rely on main.site-main for centering anymore with this approach */
+    /* but ensure it doesn't interfere */
     main.site-main.login-page-container { /* Class added by JS */
-        flex-grow: 1; /* Allows main to take up space if it's a flex item of body */
-        width: 100%;  /* Take full width of what body gives it */
-        display: flex; /* Make main a flex container to center login-card-wrapper */
-        align-items: center;
-        justify-content: center;
-        padding:0; /* Reset padding from layout.html if any */
+        width: 100%;
+        height: 100%; /* Allow it to take full height if body is its parent */
+        position: relative; /* Could also be a positioning context */
+        padding: 0 !important; /* Override any padding from layout.html */
     }
 
     .login-card-wrapper {
-        /* This div is now directly centered by main.site-main.login-page-container */
-        width: 100%;
-        max-width: 480px; /* Constrain the card's width */
-        /* No margin needed if parent is centering */
+        position: absolute; /* Key change for centering */
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%); /* The magic centering trick */
+        width: 90%; /* Responsive width */
+        max-width: 480px; /* Max width of the card */
+        padding: 20px; /* Padding around the card, within the wrapper */
+        box-sizing: border-box;
     }
 
     .login-card {
@@ -58,14 +57,14 @@
         border-radius: 20px;
         border: 1px solid rgba(255, 255, 255, 0.18);
         padding: 2.5rem 3rem;
-        width: 100%; /* Take full width of its wrapper */
+        width: 100%; /* Card takes full width of its wrapper */
         box-shadow: 0 10px 35px rgba(0, 0, 0, 0.2);
         text-align: center;
         color: #ffffff;
     }
 
-    /* ... (rest of your .login-card h2, .subtext, .form-group, input, btn-login, flashes-login styles) ... */
-    /* Ensure these styles are the same as the version that showed the correct card content */
+    /* ... (KEEP ALL YOUR OTHER .login-card h2, .subtext, .form-group, input, btn-login, flashes-login styles EXACTLY AS THEY WERE in the PREVIOUS working version where the card content was visible) ... */
+    /* I am only showing the structural/positioning CSS here. Ensure all other visual styles for the card content are present. */
     .login-card h2 { font-weight: 700; font-size: 2.2rem; margin-bottom: 0.75rem; color: #fff; letter-spacing: 0.5px; }
     .login-card h2 .fa-shield-alt { margin-right: 10px; opacity: 0.8; }
     .login-card .subtext { color: rgba(255, 255, 255, 0.85); margin-bottom: 2.5rem; font-size: 1rem; line-height: 1.6; }
@@ -91,6 +90,7 @@
 {% endblock %}
 
 {% block content %}
+{# The login-card-wrapper is now positioned absolutely by the CSS above #}
 <div class="login-card-wrapper">
     <div class="login-card">
         <h2><i class="fas fa-shield-alt"></i> Club Portal</h2>
@@ -124,8 +124,6 @@
             </div>
             <button type="submit" class="btn btn-login">Log In</button>
         </form>
-        
-        {# "Create a Club Account" link is removed. #}
     </div>
 </div>
 {% endblock %}
@@ -134,16 +132,18 @@
 {{ super() if super }}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        console.log("Login page script: DOMContentLoaded");
+        // Add class to body for login page specific styling (primarily for background and hiding header/footer)
         document.body.classList.add('login-active-page');
         console.log("Login page script: Added 'login-active-page' to body.");
 
+        // The mainElement class addition might not be strictly necessary for centering anymore
+        // with the absolute positioning approach, but keeping it for consistency if other styles use it.
         const mainElement = document.querySelector('main.site-main');
         if (mainElement) {
             mainElement.classList.add('login-page-container');
-            console.log("Login page script: Added 'login-page-container' to main.site-main.");
+             console.log("Login page script: Added 'login-page-container' to main.site-main.");
         } else {
-            console.warn('Login page script: "main.site-main" element not found. Body flex properties will attempt to center the content.');
+            console.warn('Login page script: "main.site-main" element not found.');
         }
     });
 </script>
