@@ -3,7 +3,7 @@
 import base64
 from collections import defaultdict
 from datetime import datetime, timedelta
-from io import BytesIO # Standard BytesIO
+from io import BytesIO
 from operator import itemgetter
 import os
 import traceback
@@ -26,7 +26,7 @@ from google.oauth2.service_account import Credentials as GoogleAuthServiceAccoun
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-# from dotenv import load_dotenv
+# from dotenv import load_dotenv # Optional for local .env files
 # load_dotenv()
 
 app = Flask(__name__)
@@ -84,10 +84,9 @@ def _initialize_gspread_client_internal():
     print("Initializing gspread client from environment variables (one-time per worker)...")
     try:
         creds_dict = get_google_creds_dict_from_env()
-        current_scope_for_gspread = SCOPE_GSPREAD_CLIENT_DEFAULT # Always use this for simplicity now
-        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, current_scope_for_gspread)
+        creds = GSpreadServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE_GSPREAD_CLIENT_DEFAULT)
         gspread_client_global = gspread.authorize(creds)
-        print(f"gspread client initialized successfully with scope: {current_scope_for_gspread}")
+        print(f"gspread client initialized successfully with scope: {SCOPE_GSPREAD_CLIENT_DEFAULT}")
         return gspread_client_global
     except Exception as e: print(f"CRITICAL ERROR initializing gspread client: {e}"); traceback.print_exc(); raise
 
@@ -326,7 +325,6 @@ def club_dashboard():
         try:
             start_time, end_time = parse_datetime(fest.get('StartTime')), parse_datetime(fest.get('EndTime'))
             if not (start_time and end_time): continue
-            # FestImageLink is available in fest object here if you need it for the template
             if now < start_time: upcoming.append(fest)
             elif start_time <= now < end_time: ongoing.append(fest)
         except Exception as e: print(f"Error processing fest '{fest.get('FestName')}' for dashboard: {e}")
@@ -570,25 +568,26 @@ def join_event(fest_id_param):
 @app.route('/security/login', methods=['GET', 'POST'])
 def security_login():
     if request.method == 'POST':
-        username = request.form.get('username','').strip().lower(); event_name_password = request.form.get('password','').strip()
+        username = request.form.get('username','').strip().lower()
+        event_name_password = request.form.get('password','').strip()
         if not username or not event_name_password: flash("All fields required.", "danger"); return render_template('security_login.html')
         if username == 'security':
             try:
                 all_fests_data = get_all_fests_cached()
                 if all_fests_data is None: all_fests_data = [] 
-                now = datetime.now(); valid_event = None
-                for f in all_fests_data:
-                    if str(f.get('FestName','')).strip() == event_name_password and str(f.get('Published','')).strip().lower() == 'yes':
-                        start_time, end_time = parse_datetime(f.get('StartTime','')), parse_datetime(f.get('EndTime',''))
-                        if start_time and end_time and start_time <= now <= (end_time + timedelta(hours=2)): valid_event = f; break
-                        elif start_time and not end_time and start_time <= now: valid_event = f; break
+                print(f"Security Login Attempt: User='{username}', EventPass='{event_name_password}'")
+                # for dbg_fest in all_fests_data: print(f"  Checking against: Name='{dbg_fest.get('FestName', '').strip()}', Published='{str(dbg_fest.get('Published', '')).strip().lower()}'")
+                valid_event = next((f for f in all_fests_data if
+                                    str(f.get('FestName','')).strip() == event_name_password and
+                                    str(f.get('Published','')).strip().lower() == 'yes'), None)
                 if valid_event:
                     session['security_event_name'] = valid_event.get('FestName','N/A'); session['security_event_id'] = valid_event.get('FestID','N/A');
                     safe_base="".join(c if c.isalnum() or c in [' ','_','-'] else "" for c in str(valid_event.get('FestName','Event'))).strip() or "fest_event";
                     session['security_event_sheet_title']=f"{safe_base[:80]}_{valid_event.get('FestID','')}";
-                    flash(f"Security access for: {session['security_event_name']}", "success"); return redirect(url_for('security_scanner'));
-                else: flash("Invalid event password or event inactive/unpublished.", "danger")                        
-            except Exception as e: print(f"ERROR: Security login: {e}"); traceback.print_exc(); flash("Security login error.", "danger")
+                    flash(f"Security access for: {session['security_event_name']}", "success"); print(f"Security Login SUCCESS for event: {session['security_event_name']}")
+                    return redirect(url_for('security_scanner'));
+                else: flash("Invalid event password or event inactive/unpublished.", "danger"); print(f"Security Login FAILED for EventPass='{event_name_password}'")
+            except Exception as e: print(f"ERROR: Security login failed: {e}"); traceback.print_exc(); flash("Security login error.", "danger")
         else: flash("Invalid security username.", "danger")
     return render_template('security_login.html')
 
@@ -656,6 +655,6 @@ if __name__ == '__main__':
         print("Flask startup - Main process: Initialization complete.")
     else: print("Flask starting up - Reloader process detected.")
     
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000)) # Default to 10000 for Render if PORT not set
     print(f"Starting Flask server (host=0.0.0.0, port={port})...")
-    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=True)
+    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=True) # Set use_reloader=False for production testing on Render
