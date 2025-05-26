@@ -4,20 +4,90 @@
     QR Scanner - {{ event_name }}
 {% endblock %}
 
+{% block head_styles %}
+<style>
+    .scanner-container {
+        max-width: 600px; /* Adjusted for better layout with select */
+        margin: 2rem auto;
+        padding: 1.5rem;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px S15px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+    .scanner-container h2, .scanner-container h3 {
+        margin-bottom: 1rem;
+    }
+    #qr-reader-container {
+        max-width: 500px; 
+        margin: 20px auto; 
+        border: 1px solid #ccc; 
+        position: relative;
+        background-color: #000; /* Background for the video area */
+    }
+    #qr-reader { /* This is where the video feed will go */
+        width: 100%;
+        /* height: auto; or set a fixed height if desired */
+        display: block; /* Ensures video takes up space */
+    }
+    #qr-reader-status {
+        position: absolute; 
+        top: 10px; 
+        left: 10px; 
+        background: rgba(0,0,0,0.6); 
+        color: white; 
+        padding: 5px 8px; 
+        border-radius: 3px; 
+        font-size: 0.9em;
+        z-index: 10; /* Make sure it's on top */
+    }
+    #camera-select-container {
+        margin-bottom: 15px;
+    }
+    #camera-select {
+        padding: 8px 12px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        background-color: #fff;
+        min-width: 200px; /* Give it some width */
+    }
+    .scan-result-box {
+        margin-top: 20px; 
+        padding: 15px; 
+        border: 1px solid #ccc; 
+        border-radius: 5px; 
+        min-height: 80px; 
+        background-color: #f8f9fa;
+        text-align: left; /* Align text left for results */
+    }
+    .scan-result-box h4 {
+        margin-top: 0;
+        margin-bottom: 10px;
+    }
+    #next-scan-btn {
+        margin-top: 15px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="scanner-container">
     <h2>Security QR Code Scanner</h2>
     <h3>Scanning for: <strong>{{ event_name }}</strong></h3>
     
-    {# Container for the scanner video feed #}
-    <div id="qr-reader-container" style="max-width: 500px; margin: 20px auto; border: 1px solid #ccc; position: relative;"> 
-        <div id="qr-reader" style="width: 100%; background-color: #000;"></div> 
-        {# Status text OVER the reader - requires some CSS potentially #}
-        <p id="qr-reader-status" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); color: white; padding: 5px; border-radius: 3px; font-size: 0.9em;"></p>
+    <div id="camera-select-container">
+        <label for="camera-select" style="margin-right: 10px;">Select Camera:</label>
+        <select id="camera-select" class="form-select-sm">
+            <option value="">Detecting cameras...</option>
+        </select>
+    </div>
+
+    <div id="qr-reader-container"> 
+        <div id="qr-reader"></div> 
+        <p id="qr-reader-status"></p>
     </div>
     
-    {# Area to display scan results #}
-    <div id="scan-result" class="scan-result-box" style="margin-top: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; min-height: 80px; background-color: #f8f9fa;">
+    <div id="scan-result" class="scan-result-box">
         <h4>Scan Result:</h4>
         <div id="scan-status-message" style="font-weight: bold; margin-bottom: 5px;">
             Waiting for scan...
@@ -27,8 +97,7 @@
         </div>
     </div>
 
-    {# Next Scan Button - Initially hidden #}
-    <div style="text-align: center; margin-top: 15px;">
+    <div style="text-align: center;">
          <button id="next-scan-btn" class="btn btn-primary" style="display: none;">Scan Next QR</button>
     </div>
 
@@ -36,74 +105,74 @@
 {% endblock %}
 
 {% block scripts %}
-{# Ensure html5-qrcode is loaded via layout.html or uncomment here #}
-{# <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script> #} 
+{# 
+    IMPORTANT: Ensure the html5-qrcode library is loaded. 
+    If it's not already in your layout.html, uncomment or add this line:
+#}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script> 
 
 <script>
     // --- DOM Elements ---
     const qrReaderElement = document.getElementById('qr-reader');
     const qrReaderStatusElement = document.getElementById('qr-reader-status');
+    const cameraSelectElement = document.getElementById('camera-select');
     const scanResultContainer = document.getElementById('scan-result');
     const scanStatusMessageElement = document.getElementById('scan-status-message');
     const userDetailsElement = document.getElementById('scanned-user-details');
     const nextScanButton = document.getElementById('next-scan-btn'); 
     
-    let html5QrcodeScanner; // Scanner instance
-    let isScannerPaused = false; // Track paused state reliably
+    let html5Qrcode; // Will hold the Html5Qrcode instance
+    let currentCameraId = null;
+    let isScanning = false; // Tracks if the scanner is actively trying to scan
 
     // --- Scan Success Callback ---
-    const onScanSuccess = (decodedText, decodedResult) => {
-        // Prevent processing if already paused/processing
-        if (isScannerPaused) {
-             console.log("Scan detected while paused, ignoring.");
+    const onScanSuccess = async (decodedText, decodedResult) => { // Mark as async
+        if (!isScanning) {
+             console.log("Scan detected but not in active scanning state, ignoring.");
              return; 
         }
         
         console.log(`Scan Success: ${decodedText}`);
-        isScannerPaused = true; // Set paused state immediately
-        
-        // Try to visually freeze the scanner feed
-        try {
-             if (html5QrcodeScanner) {
-                 // Passing 'true' to pause helps freeze the viewfinder video track
-                 html5QrcodeScanner.pause(true);
-                 qrReaderStatusElement.textContent = 'Processing...'; 
-             }
-        } catch (e) {
-             console.error("Error pausing scanner video feed:", e);
-             qrReaderStatusElement.textContent = 'Processing... (pause error)';
+        isScanning = false; 
+        qrReaderStatusElement.textContent = 'QR Detected. Processing...';
+
+        if (html5Qrcode && typeof html5Qrcode.stop === 'function') {
+            try {
+                await html5Qrcode.stop(); // Await the stop promise
+                console.log("QR Code scanning stopped successfully via stop().");
+            } catch (err) {
+                console.error("Error explicitly calling html5Qrcode.stop():", err);
+                // Continue processing even if stop fails, as scan was detected
+            }
         }
 
         scanStatusMessageElement.textContent = 'Verifying...'; 
         userDetailsElement.innerHTML = '';
-        scanResultContainer.style.backgroundColor = '#e9ecef'; // Light grey while processing
+        scanResultContainer.style.backgroundColor = '#e9ecef';
 
-        // --- Backend Verification ---
-        fetch("{{ url_for('verify_qr') }}", { /* ... Fetch config ... */ 
+        fetch("{{ url_for('verify_qr') }}", { 
              method: 'POST',
              headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}'},
              body: JSON.stringify({ qr_data: decodedText })
          })
         .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, data })))
         .then(({ ok, status, data }) => { 
-             // --- Display results --- 
-             // (Keep the exact same success/warning/failure logic from previous good answer)
              if (ok) {
                  if (data.status === 'success') {
                      scanStatusMessageElement.innerHTML = `<strong style="color:green;">PASSED: ${data.message}</strong>`;
                      userDetailsElement.innerHTML = `<strong>Name:</strong> ${data.name}<br><strong>Details:</strong> ${data.details}`;
-                     scanResultContainer.style.backgroundColor = '#d1e7dd'; // Greenish
+                     scanResultContainer.style.backgroundColor = '#d1e7dd';
                  } else if (data.status === 'warning') {
                      scanStatusMessageElement.innerHTML = `<strong style="color:#ffc107;">WARNING: ${data.message}</strong>`;
                      userDetailsElement.innerHTML = `<strong>Name:</strong> ${data.name}<br><strong>Details:</strong> ${data.details}`;
-                     scanResultContainer.style.backgroundColor = '#fff3cd'; // Yellowish
+                     scanResultContainer.style.backgroundColor = '#fff3cd';
                  } else { 
-                     scanStatusMessageElement.innerHTML = `<strong style="color:red;">FAILED: ${data.message || 'Unknown response'}</strong>`;
-                     scanResultContainer.style.backgroundColor = '#f8d7da'; // Reddish
+                     scanStatusMessageElement.innerHTML = `<strong style="color:red;">FAILED: ${data.message || 'Unknown server response'}</strong>`;
+                     scanResultContainer.style.backgroundColor = '#f8d7da';
                  }
              } else { 
                  console.error('Server error:', status, data);
-                 scanStatusMessageElement.innerHTML = `<strong style="color:red;">ERROR: ${data.message || `Server responded with ${status}`}</strong>`;
+                 scanStatusMessageElement.innerHTML = `<strong style="color:red;">SERVER ERROR: ${data.message || `Server responded with ${status}`}</strong>`;
                  scanResultContainer.style.backgroundColor = '#f8d7da';
              }
          })
@@ -113,104 +182,149 @@
              scanResultContainer.style.backgroundColor = '#f8d7da';
         })
         .finally(() => {
-             // Show the button, update status - scanner remains paused
-             qrReaderStatusElement.textContent = 'Result displayed. Click button below to scan next.';
+             qrReaderStatusElement.textContent = 'Result displayed. Click button to scan next.';
              nextScanButton.style.display = 'inline-block'; 
         });
     };
 
-    // --- Scan Failure Callback (Minimal implementation) ---
     const onScanFailure = (error) => {
-         // Usually ignored unless debugging needed
-         // console.warn(`QR Scan Error: ${error}`);
+        // This is called frequently by the library if no QR is found, so keep it minimal unless debugging.
+        // console.warn(`QR Scan decode failure: ${error}`); 
     };
 
-    // --- Resume Scanning Function ---
-    const resumeScanning = () => {
-         if (!isScannerPaused) {
-             console.warn("Resume called but scanner not paused.");
-             return; 
-         }
-         if (!html5QrcodeScanner) {
-             console.error("Cannot resume, scanner instance not found.");
-             qrReaderStatusElement.textContent = 'Scanner error. Cannot resume.';
-             return;
-         }
-
-         // Clear previous results
-         scanStatusMessageElement.textContent = 'Ready for next scan...';
-         userDetailsElement.innerHTML = "";
-         scanResultContainer.style.backgroundColor = '#f8f9fa'; // Default grey
-         nextScanButton.style.display = 'none'; // Hide button
-
-         try {
-              // Use getState() for more reliability if available and needed, otherwise just try resume
-              // if (html5QrcodeScanner.getState() === 2) { // 2 = PAUSED STATE
-                 html5QrcodeScanner.resume();
-                 isScannerPaused = false; // Update state
-                 qrReaderStatusElement.textContent = 'Scanner active...';
-                 console.log("Scanner resumed.");
-              // } else {
-              //   console.warn(`Attempted resume, but scanner state was not PAUSED (state: ${html5QrcodeScanner.getState()}).`);
-              //   qrReaderStatusElement.textContent = `Scanner not paused. Cannot resume.`;
-              // }
-         } catch (e) {
-              console.error("Error resuming scanner:", e);
-              qrReaderStatusElement.textContent = `Error resuming scanner: ${e.message}. Refresh page if needed.`;
-              isScannerPaused = false; // Reset state even on error to avoid getting stuck
-         }
-    };
-
-    // --- Initialize Scanner ---
-    document.addEventListener('DOMContentLoaded', () => {
-        // Attach button click listener
-        nextScanButton.addEventListener('click', resumeScanning);
-
-        if (!qrReaderElement) {
-             console.error("Element with ID 'qr-reader' not found.");
-             qrReaderStatusElement.textContent = 'Scanner init failed: Container missing.';
-             return;
+    const startScanner = async (cameraIdToUse) => { // Mark as async
+        if (isScanning) {
+            console.log("Scanner start called, but already attempting to scan.");
+            return;
         }
+        if (!html5Qrcode) {
+            console.error("Html5Qrcode instance not initialized. Cannot start.");
+            qrReaderStatusElement.textContent = 'Scanner not ready.';
+            return;
+        }
+
+        isScanning = true;
+        qrReaderStatusElement.textContent = 'Starting camera...';
+        scanStatusMessageElement.textContent = 'Waiting for scan...';
+        userDetailsElement.innerHTML = "";
+        scanResultContainer.style.backgroundColor = '#f8f9fa';
+        nextScanButton.style.display = 'none';
+
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } }; // Adjust qrbox as needed
         
-        // Check if the library is loaded
-        if (typeof Html5QrcodeScanner === 'undefined') {
-             console.error("Html5QrcodeScanner library is not loaded!");
+        // Ensure cameraIdToUse is valid or fallback
+        const selectedCamera = cameraIdToUse || currentCameraId || (await Html5Qrcode.getCameras())[0]?.id;
+
+        if (!selectedCamera) {
+            qrReaderStatusElement.textContent = 'No camera selected or available to start.';
+            console.error("No camera selected or available to start scanner.");
+            isScanning = false;
+            return;
+        }
+
+        console.log(`Attempting to start scanner with camera ID: ${selectedCamera}`);
+        html5Qrcode.start(
+            selectedCamera, 
+            config,
+            onScanSuccess,
+            onScanFailure 
+        ).then(() => {
+            console.log("Scanner started successfully.");
+            qrReaderStatusElement.textContent = 'Scanner active. Point at QR code.';
+            // Update currentCameraId if it changed, though html5Qrcode.start doesn't return the active one.
+            // We rely on cameraSelectElement.value or the passed cameraIdToUse.
+            currentCameraId = selectedCamera; 
+        }).catch(err => {
+            console.error(`Error starting qrcode scanner: `, err);
+            qrReaderStatusElement.textContent = `Error starting camera: ${err.name || 'Unknown Error'}. ${err.message || ''}. Try another camera or refresh.`;
+            isScanning = false;
+            nextScanButton.style.display = 'inline-block'; // Allow retry
+        });
+    };
+    
+    nextScanButton.addEventListener('click', () => {
+        if (html5Qrcode) {
+            startScanner(cameraSelectElement.value); // Start with the currently selected camera
+        } else {
+            console.error("Next Scan clicked but html5Qrcode not initialized.");
+            qrReaderStatusElement.textContent = 'Scanner not initialized.';
+        }
+    });
+
+    const initializeScannerAndCameras = () => {
+        if (typeof Html5Qrcode === 'undefined') {
+             console.error("Html5Qrcode library is not loaded!");
              qrReaderStatusElement.textContent = 'Scanner init failed: Library missing.';
              return;
         }
+        if (!qrReaderElement) {
+            console.error("QR Reader element not found in DOM.");
+            if (qrReaderStatusElement) qrReaderStatusElement.textContent = 'Scanner UI element missing.';
+            return;
+        }
 
-        try {
-             // Create the scanner instance
-             html5QrcodeScanner = new Html5QrcodeScanner(
-                  "qr-reader", 
-                  { 
-                      fps: 10, 
-                      qrbox: { width: 250, height: 250 }, // Consider making responsive as before if needed
-                      rememberLastUsedCamera: true,
-                      // Experimental checks - use only if default fails:
-                      // useBarCodeDetectorIfSupported: true, // Can sometimes help detection
-                      // showTorchButtonIfSupported: true, // Adds a flashlight button if device allows
-                      facingMode: { ideal: "environment" } // Prefer back camera gently
-                  }, 
-                  /* verbose= */ false 
-             );
-            
-            // Render the scanner - This returns a Promise
-             qrReaderStatusElement.textContent = 'Initializing scanner...';
-             html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-             // NOTE: .render itself does NOT return a Promise according to docs, so .then was incorrect. 
-             // Status updates happen via callbacks or initial messages.
-             console.log("Scanner render called."); 
-             qrReaderStatusElement.textContent = 'Scanner starting... Allow camera access.';
-             // We assume success unless error callback is hit or library throws above
-             // Set initial state assuming scanning will start soon
-             isScannerPaused = false; 
+        html5Qrcode = new Html5Qrcode("qr-reader", /* verbose= */ false); 
 
-         } catch(initError) {
-             isScannerPaused = true; // Prevent accidental scans
-             console.error("Fatal error initializing Html5QrcodeScanner:", initError);
-             qrReaderStatusElement.textContent = `FATAL Error initializing scanner: ${initError.message}`;
-         }
+        qrReaderStatusElement.textContent = "Detecting cameras...";
+        Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length) {
+                cameraSelectElement.innerHTML = ''; // Clear "Detecting..."
+                let preferredCameraId = null;
+                devices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.id;
+                    option.text = device.label || `Camera ${index + 1}`;
+                    cameraSelectElement.appendChild(option);
+                    if (!preferredCameraId && device.label && device.label.toLowerCase().includes('back')) {
+                        preferredCameraId = device.id;
+                    }
+                });
+
+                if (preferredCameraId) {
+                    cameraSelectElement.value = preferredCameraId;
+                    currentCameraId = preferredCameraId;
+                } else if (devices.length > 0) { // Default to first camera if no "back" found
+                    cameraSelectElement.value = devices[0].id;
+                    currentCameraId = devices[0].id;
+                }
+                
+                cameraSelectElement.addEventListener('change', async (event) => { // Mark as async
+                    const newCameraId = event.target.value;
+                    if (isScanning && html5Qrcode && typeof html5Qrcode.stop === 'function') {
+                        qrReaderStatusElement.textContent = `Switching to camera: ${cameraSelectElement.options[cameraSelectElement.selectedIndex].text}...`;
+                        try {
+                            await html5Qrcode.stop(); // Await the stop
+                            console.log("Scanner stopped for camera change.");
+                            isScanning = false; // Explicitly set before restarting
+                            currentCameraId = newCameraId; // Update before starting
+                            startScanner(newCameraId);
+                        } catch (err) {
+                            console.error("Error stopping to change camera:", err);
+                            qrReaderStatusElement.textContent = "Error changing camera. Try again.";
+                            isScanning = false; // Ensure it's reset
+                        }
+                    } else {
+                        currentCameraId = newCameraId; // Update for next manual start
+                        // If not scanning, we can just update the currentCameraId and let the next "start" use it
+                        // Or, optionally, auto-start if a camera is selected and not already scanning:
+                        // if (!isScanning) startScanner(newCameraId); 
+                    }
+                });
+                
+                startScanner(currentCameraId); // Auto-start with the selected/default camera
+
+            } else {
+                qrReaderStatusElement.textContent = "No cameras found on this device.";
+                console.error("No cameras found.");
+            }
+        }).catch(err => {
+            qrReaderStatusElement.textContent = `Error getting cameras: ${err.name || 'Unknown Error'}. ${err.message || ''}. Please allow camera permission.`;
+            console.error("Error getting cameras: ", err);
+        });
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeScannerAndCameras();
     });
 </script>
 {% endblock %}
