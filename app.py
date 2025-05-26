@@ -585,17 +585,20 @@ def join_event(fest_id_param):
 def security_login():
     if request.method == 'POST':
         username = request.form.get('username','').strip().lower()
-        event_name_password = request.form.get('password','').strip()
+        event_name_password = request.form.get('password','').strip() # This is the "FestName"
         if not username or not event_name_password:
             flash("All fields required.", "danger")
             return render_template('security_login.html')
         if username == 'security':
             try:
                 all_fests_data = get_all_fests_cached()
-                if all_fests_data is None: 
+                if all_fests_data is None: # Handle case where cache might return None on initial error
                     all_fests_data = [] 
                 
                 print(f"Security Login Attempt: User='{username}', EventPass='{event_name_password}'")
+                # Check all fests for a match
+                # for fest_debug in all_fests_data:
+                #     print(f"Checking against: Name='{fest_debug.get('FestName')}', Published='{fest_debug.get('Published')}'")
 
                 valid_event = next((f for f in all_fests_data if
                                     str(f.get('FestName','')).strip() == event_name_password and
@@ -619,7 +622,7 @@ def security_login():
                 flash("Security login error.", "danger")
         else:
             flash("Invalid security username.", "danger")
-    return render_template('security_login.html')
+    return render_template('security_login.html') # Assumes security_login.html exists
 
 @app.route('/security/logout')
 def security_logout():
@@ -634,7 +637,7 @@ def security_scanner():
     if 'security_event_sheet_title' not in session:
         flash("Please login as security.", "warning")
         return redirect(url_for('security_login'))
-    return render_template('security_scanner.html', event_name=session.get('security_event_name',"Event"))
+    return render_template('security_scanner.html', event_name=session.get('security_event_name',"Event")) # Assumes security_scanner.html exists
 
 @app.route('/security/verify_qr', methods=['POST'])
 def verify_qr():
@@ -672,7 +675,7 @@ def verify_qr():
         event_headers_template = ['UniqueID','Name','Email','Mobile','College','Present','Timestamp']
         
         print(f"VerifyQR: Attempting to open/create SS '{sheet_title}' for UID '{scanned_unique_id}'")
-        reg_sheet = get_or_create_worksheet(client, sheet_title, "Registrations", event_headers_template)
+        reg_sheet = get_or_create_worksheet(client, sheet_title, "Registrations", event_headers_template) # Pass headers here for creation
         
         try:
             cell = reg_sheet.find(scanned_unique_id, in_column=1)
@@ -728,6 +731,7 @@ def verify_qr():
         print(f"ERROR: Verify QR operation failed: {e}")
         traceback.print_exc()
         return jsonify({'status':'error', 'message':'Verification server error.'}), 500
+
 
 # --- Initialization Function ---
 def initialize_application_on_startup():
