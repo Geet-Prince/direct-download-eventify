@@ -953,4 +953,4 @@ if __name__ == '__main__':
     # The debug and reloader settings here won't affect Gunicorn.
     # Gunicorn has its own settings for workers, debug mode (usually off in prod), and reloading.
     print(f"Flask app object created. If run directly via 'python app.py', will listen on port {port}.")
-    # app.run(debug=True, host='0.0.0.0', port=port) # Comment out if Gunicorn is always used
+    # app.run(debug=True, host='0.0.0.0', port=port) # Comment out if Gunicorn is always used this is my main code 
