@@ -200,7 +200,8 @@
                         <i class="fas fa-download me-1"></i> Export
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="exportDropdown">
-                        <li><a class="dropdown-item" href="{{ url_for('export_pdf', fest_id=fest.FestID) }}"><i class="fas fa-file-pdf me-2"></i>PDF Report</a></li>
+                        <!-- <li><a class="dropdown-item" href="{{ url_for('export_pdf', fest_id=fest.FestID) }}"><i class="fas fa-file-pdf me-2"></i>PDF Report</a></li> -->
+
                         <li><a class="dropdown-item" href="{{ url_for('export_excel', fest_id=fest.FestID) }}"><i class="fas fa-file-excel me-2"></i>Excel Data</a></li>
                     </ul>
                 </div>
