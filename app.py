@@ -1,4 +1,4 @@
-# -- coding: utf-8 --
+# -*- coding: utf-8 -*-
 # Standard library imports
 import base64 # Added for join_event
 from collections import defaultdict
@@ -25,7 +25,7 @@ import qrcode
 # from dotenv import load_dotenv # Optional for local .env files
 # load_dotenv()
 
-app = Flask(_name_)
+app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY')
 if not app.secret_key:
     print("🔴 FATAL: FLASK_SECRET_KEY is not set. Using a temporary key for local dev, but this WILL FAIL in production or if app.debug is False.")
@@ -438,7 +438,7 @@ def export_excel(fest_id):
         df = pd.DataFrame(registrations_data); output = PythonBytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='Registrations')
         output.seek(0)
-        return send_file(output, as_attachment=True, download_name=f"{safe_name}registrations{datetime.now().strftime('%Y%m%d')}.xlsx", mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        return send_file(output, as_attachment=True, download_name=f"{safe_name}_registrations_{datetime.now().strftime('%Y%m%d')}.xlsx", mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e: print(f"Excel Export Error: {e}"); traceback.print_exc(); flash(f"Excel export error: {e}", "danger"); return redirect(request.referrer or url_for('club_dashboard'))
 
 @app.route('/club/fest/<fest_id>/export/pdf')
@@ -487,7 +487,7 @@ def export_pdf(fest_id):
             pdf.ln()
             
         pdf_output_bytes = pdf.output(dest='S').encode('latin-1'); response = make_response(pdf_output_bytes)
-        response.headers['Content-Type'] = 'application/pdf'; response.headers['Content-Disposition'] = f'attachment; filename={safe_name}report{datetime.now().strftime("%Y%m%d")}.pdf'
+        response.headers['Content-Type'] = 'application/pdf'; response.headers['Content-Disposition'] = f'attachment; filename={safe_name}_report_{datetime.now().strftime("%Y%m%d")}.pdf'
         return response
     except Exception as e: print(f"PDF Export Error: {e}"); traceback.print_exc(); flash("PDF export error.", "danger"); return redirect(request.referrer or url_for('club_dashboard'))
 
@@ -563,7 +563,7 @@ def join_event(fest_id_param):
         fest_name_for_display = fest_info.get('FestName', 'Event')
         
         safe_fest_name_file = "".join(c if c.isalnum() else "_" for c in fest_name_for_display)
-        download_filename = f"{safe_fest_name_file}QR{user_id}.png"
+        download_filename = f"{safe_fest_name_file}_QR_{user_id}.png"
 
         flash(f"Successfully registered for '{fest_name_for_display}'! Your QR code is shown below and should download automatically.", "success")
         
@@ -802,11 +802,11 @@ def initialize_application_on_startup():
         if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
             exit(1)
     
-    print("ℹ INFO: Email functionality (Flask-Mail) has been removed from the project.")
+    print("ℹ️ INFO: Email functionality (Flask-Mail) has been removed from the project.")
     print("----- Application Initialization Complete -----\n")
 
 # --- Main Execution Block ---
-if _name_ == '_main_':
+if __name__ == '__main__':
     if not MASTER_SHEET_ID: print("\n🔴 WARNING: MASTER_SHEET_ID not set. Opening master sheet will rely on name search.\n")
     
     if (not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true") and \
